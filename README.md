@@ -23,7 +23,7 @@ A lightweight, dependency-free JavaScript library for handling JWT authenticatio
 
 **Disclaimer**: This library is a *client-side* helper. It assumes the JWT you receive from your server has already been validated. You should never trust the contents of a JWT payload on the client for authorization without re-validating with your backend.
 
-## 🚀 Installation
+##  Installation
 
 ```
 npm install sirbenj-jwt-auth-client
@@ -152,7 +152,7 @@ export default LoginComponent;
 | `isRefreshing` | `Boolean` | `true` while the library is attempting to refresh the access token. |
 | `refreshAccessToken()` | `Function` | A manual trigger to attempt a token refresh. Returns `Promise<boolean>`. |
 
-## ⚙️ Configuration
+## Configuration
 
 You can configure the storage mechanism and other options by passing a configuration object.
 
