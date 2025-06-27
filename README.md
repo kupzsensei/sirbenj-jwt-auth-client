@@ -37,7 +37,7 @@ The most important part of using refresh tokens is to provide a function that ca
 
 Create an `onRefresh` function like the one below. This function receives the `refreshToken` and must return a promise that resolves to an object with the `newAccessToken` and optionally a `newRefreshToken`.
 
-```
+```javascript
 // src/auth.js
 export const onRefresh = async (refreshToken) => {
   try {
@@ -71,7 +71,7 @@ export const onRefresh = async (refreshToken) => {
 
 Now, pass your `onRefresh` function into the `AuthProvider`'s configuration.
 
-```
+```javascript
 // src/index.js
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -97,7 +97,7 @@ root.render(
 
 The `login` function now accepts both an `accessToken` and a `refreshToken`.
 
-```
+```javascript
 // src/components/LoginComponent.js
 import React from 'react';
 import { useAuth } from 'sirbenj-jwt-auth-client';
@@ -176,7 +176,7 @@ npm install js-cookie
 
 #### Step 2: Create a Storage Adapter and Configure
 
-```
+```javascript
 // src/index.js
 import { AuthProvider } from 'sirbenj-jwt-auth-client';
 import Cookies from 'js-cookie';
