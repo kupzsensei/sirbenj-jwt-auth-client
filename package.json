@@ -1,8 +1,9 @@
 {
   "name": "sirbenj-jwt-auth-client",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "A lightweight, dependency-free JS library for frontend JWT authentication with refresh token support.",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "module": "dist/index.esm.js",
   "browser": "dist/index.umd.js",
   "files": [
@@ -10,10 +11,19 @@
   ],
   "scripts": {
     "build": "rollup -c",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "jest"
   },
   "author": "sirbenj",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sirbenj/sirbenj-jwt-auth-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sirbenj/sirbenj-jwt-auth-client/issues"
+  },
+  "homepage": "https://github.com/sirbenj/sirbenj-jwt-auth-client#readme",
   "devDependencies": {
     "@babel/core": "^7.18.0",
     "@babel/preset-env": "^7.18.0",
@@ -21,8 +31,17 @@
     "@rollup/plugin-babel": "^5.3.1",
     "@rollup/plugin-commonjs": "^22.0.0",
     "@rollup/plugin-node-resolve": "^13.3.0",
+    "@rollup/plugin-typescript": "^12.1.4",
+    "@types/jest": "^30.0.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "jest": "^30.0.3",
+    "jest-environment-jsdom": "^30.0.2",
     "rollup": "^2.75.6",
-    "rollup-plugin-peer-deps-external": "^2.2.4"
+    "rollup-plugin-peer-deps-external": "^2.2.4",
+    "ts-jest": "^29.4.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.8.3"
   },
   "peerDependencies": {
     "react": ">=16.8.0",

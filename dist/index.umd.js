@@ -1,8 +1,12 @@
 (function (global, factory) {
-  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('react'), require('react/jsx-runtime')) :
-  typeof define === 'function' && define.amd ? define(['exports', 'react', 'react/jsx-runtime'], factory) :
-  (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.JwtAuth = {}, global.React, global.jsxRuntime));
-})(this, (function (exports, react, jsxRuntime) { 'use strict';
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('react')) :
+  typeof define === 'function' && define.amd ? define(['exports', 'react'], factory) :
+  (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.JwtAuth = {}, global.React));
+})(this, (function (exports, React) { 'use strict';
+
+  function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
+
+  var React__default = /*#__PURE__*/_interopDefaultLegacy(React);
 
   function _arrayLikeToArray(r, a) {
     (null == a || a > r.length) && (a = r.length);
@@ -216,26 +220,37 @@
     }
   }
 
+  /**
+   * @class JwtAuthClient
+   * @description A client for handling JWT authentication.
+   */
   var JwtAuthClient = /*#__PURE__*/function () {
+    /**
+     * @constructor
+     * @param {JwtAuthClientOptions} [options] - The options for the client.
+     */
     function JwtAuthClient() {
       var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
       _classCallCheck(this, JwtAuthClient);
       this.storage = options.storage || window.localStorage;
       this.accessTokenKey = options.accessTokenKey || 'jwt_access_token';
       this.refreshTokenKey = options.refreshTokenKey || 'jwt_refresh_token';
-      this.onRefresh = options.onRefresh || null; // User-provided function to call refresh API
+      this.rolesClaim = options.rolesClaim || 'roles';
+      this.permissionsClaim = options.permissionsClaim || 'permissions';
+      this.onRefresh = options.onRefresh;
+      this.onLogin = options.onLogin;
+      this.onVerify = options.onVerify;
     }
-
     /**
      * Saves the tokens to the configured storage.
      * @param {string} accessToken - The access JWT string.
      * @param {string} [refreshToken] - The optional refresh JWT string.
      */
     return _createClass(JwtAuthClient, [{
-      key: "login",
-      value: function login(accessToken, refreshToken) {
+      key: "setTokens",
+      value: function setTokens(accessToken, refreshToken) {
         if (typeof accessToken !== 'string' || accessToken.split('.').length !== 3) {
-          console.error('Invalid Access Token provided to login method.');
+          console.error('Invalid Access Token provided to setTokens method.');
           return;
         }
         this.storage.setItem(this.accessTokenKey, accessToken);
@@ -243,7 +258,239 @@
           this.storage.setItem(this.refreshTokenKey, refreshToken);
         }
       }
-
+      /**
+       * Handles the login process by calling the provided onLogin function or a default fetch.
+       * @param {object} credentials - User credentials (e.g., { username, password }).
+       * @param {string} loginUrl - The URL for the login API endpoint.
+       * @returns {Promise<boolean>} True if login was successful, false otherwise.
+       */
+    }, {
+      key: "login",
+      value: (function () {
+        var _login = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(credentials, loginUrl) {
+          var responseData, response, _responseData, accessToken, refreshToken, _t;
+          return _regenerator().w(function (_context) {
+            while (1) switch (_context.n) {
+              case 0:
+                if (!(!this.onLogin && !loginUrl)) {
+                  _context.n = 1;
+                  break;
+                }
+                console.error('Neither onLogin function nor loginUrl provided. Cannot perform login.');
+                return _context.a(2, false);
+              case 1:
+                _context.p = 1;
+                if (!this.onLogin) {
+                  _context.n = 3;
+                  break;
+                }
+                _context.n = 2;
+                return this.onLogin(credentials);
+              case 2:
+                responseData = _context.v;
+                _context.n = 8;
+                break;
+              case 3:
+                if (loginUrl) {
+                  _context.n = 4;
+                  break;
+                }
+                throw new Error('loginUrl must be provided if onLogin function is not configured.');
+              case 4:
+                _context.n = 5;
+                return fetch(loginUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify(credentials)
+                });
+              case 5:
+                response = _context.v;
+                if (response.ok) {
+                  _context.n = 6;
+                  break;
+                }
+                throw new Error("Login failed with status: ".concat(response.status));
+              case 6:
+                _context.n = 7;
+                return response.json();
+              case 7:
+                responseData = _context.v;
+              case 8:
+                _responseData = responseData, accessToken = _responseData.accessToken, refreshToken = _responseData.refreshToken;
+                if (accessToken) {
+                  _context.n = 9;
+                  break;
+                }
+                throw new Error('Login response did not contain an access token.');
+              case 9:
+                this.setTokens(accessToken, refreshToken);
+                return _context.a(2, true);
+              case 10:
+                _context.p = 10;
+                _t = _context.v;
+                console.error('Login failed:', _t);
+                this.logout(); // Clear any existing tokens on login failure
+                return _context.a(2, false);
+            }
+          }, _callee, this, [[1, 10]]);
+        }));
+        function login(_x, _x2) {
+          return _login.apply(this, arguments);
+        }
+        return login;
+      }()
+      /**
+       * Verifies the access token with the backend using the provided onVerify function.
+       * @returns {Promise<boolean>} True if token is valid, false otherwise.
+       */
+      )
+    }, {
+      key: "verifyToken",
+      value: (function () {
+        var _verifyToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
+          var accessToken, isValid, _t2;
+          return _regenerator().w(function (_context2) {
+            while (1) switch (_context2.n) {
+              case 0:
+                if (!(!this.onVerify || typeof this.onVerify !== 'function')) {
+                  _context2.n = 1;
+                  break;
+                }
+                console.warn('onVerify function not configured. Cannot verify token with backend.');
+                return _context2.a(2, true);
+              case 1:
+                accessToken = this.getAccessToken();
+                if (accessToken) {
+                  _context2.n = 2;
+                  break;
+                }
+                return _context2.a(2, false);
+              case 2:
+                _context2.p = 2;
+                _context2.n = 3;
+                return this.onVerify(accessToken);
+              case 3:
+                isValid = _context2.v;
+                if (!isValid) {
+                  console.warn('Backend verification failed for access token.');
+                  this.logout(); // Invalidate local session if backend says token is invalid
+                }
+                return _context2.a(2, isValid);
+              case 4:
+                _context2.p = 4;
+                _t2 = _context2.v;
+                console.error('Error during token verification:', _t2);
+                this.logout(); // Logout on verification error
+                return _context2.a(2, false);
+            }
+          }, _callee2, this, [[2, 4]]);
+        }));
+        function verifyToken() {
+          return _verifyToken.apply(this, arguments);
+        }
+        return verifyToken;
+      }()
+      /**
+       * Retrieves roles from the decoded access token payload.
+       * @returns {string[]} An array of roles or an empty array if not found.
+       */
+      )
+    }, {
+      key: "getRoles",
+      value: function getRoles() {
+        var payload = this.getPayload();
+        if (payload && Array.isArray(payload[this.rolesClaim])) {
+          return payload[this.rolesClaim];
+        }
+        return [];
+      }
+      /**
+       * Checks if the user has a specific role.
+       * @param {string} role - The role to check for.
+       * @returns {boolean} True if the user has the role, false otherwise.
+       */
+    }, {
+      key: "hasRole",
+      value: function hasRole(role) {
+        return this.getRoles().includes(role);
+      }
+      /**
+       * Checks if the user has any of the specified roles.
+       * @param {string[]} roles - An array of roles to check for.
+       * @returns {boolean} True if the user has at least one of the roles, false otherwise.
+       */
+    }, {
+      key: "hasAnyRole",
+      value: function hasAnyRole(roles) {
+        var userRoles = this.getRoles();
+        return roles.some(function (role) {
+          return userRoles.includes(role);
+        });
+      }
+      /**
+       * Checks if the user has all of the specified roles.
+       * @param {string[]} roles - An array of roles to check for.
+       * @returns {boolean} True if the user has all of the roles, false otherwise.
+       */
+    }, {
+      key: "hasAllRoles",
+      value: function hasAllRoles(roles) {
+        var userRoles = this.getRoles();
+        return roles.every(function (role) {
+          return userRoles.includes(role);
+        });
+      }
+      /**
+       * Retrieves permissions from the decoded access token payload.
+       * @returns {string[]} An array of permissions or an empty array if not found.
+       */
+    }, {
+      key: "getPermissions",
+      value: function getPermissions() {
+        var payload = this.getPayload();
+        if (payload && Array.isArray(payload[this.permissionsClaim])) {
+          return payload[this.permissionsClaim];
+        }
+        return [];
+      }
+      /**
+       * Checks if the user has a specific permission.
+       * @param {string} permission - The permission to check for.
+       * @returns {boolean} True if the user has the permission, false otherwise.
+       */
+    }, {
+      key: "hasPermission",
+      value: function hasPermission(permission) {
+        return this.getPermissions().includes(permission);
+      }
+      /**
+       * Checks if the user has any of the specified permissions.
+       * @param {string[]} permissions - An array of permissions to check for.
+       * @returns {boolean} True if the user has at least one of the permissions, false otherwise.
+       */
+    }, {
+      key: "hasAnyPermission",
+      value: function hasAnyPermission(permissions) {
+        var userPermissions = this.getPermissions();
+        return permissions.some(function (permission) {
+          return userPermissions.includes(permission);
+        });
+      }
+      /**
+       * Checks if the user has all of the specified permissions.
+       * @param {string[]} permissions - An array of permissions to check for.
+       * @returns {boolean} True if the user has all of the permissions, false otherwise.
+       */
+    }, {
+      key: "hasAllPermissions",
+      value: function hasAllPermissions(permissions) {
+        var userPermissions = this.getPermissions();
+        return permissions.every(function (permission) {
+          return userPermissions.includes(permission);
+        });
+      }
       /**
        * Removes tokens from storage.
        */
@@ -253,7 +500,6 @@
         this.storage.removeItem(this.accessTokenKey);
         this.storage.removeItem(this.refreshTokenKey);
       }
-
       /**
        * Retrieves the raw access token from storage.
        * @returns {string|null} The access token string or null if not found.
@@ -263,7 +509,6 @@
       value: function getAccessToken() {
         return this.storage.getItem(this.accessTokenKey);
       }
-
       /**
        * Retrieves the raw refresh token from storage.
        * @returns {string|null} The refresh token string or null if not found.
@@ -273,7 +518,6 @@
       value: function getRefreshToken() {
         return this.storage.getItem(this.refreshTokenKey);
       }
-
       /**
        * Decodes the access token payload.
        * @returns {object|null} The decoded payload object or null if token is invalid/missing.
@@ -292,7 +536,6 @@
           return null;
         }
       }
-
       /**
        * Checks if the access token is expired.
        * @returns {boolean} True if the token is expired or doesn't exist.
@@ -307,7 +550,6 @@
         var nowInSeconds = Math.floor(Date.now() / 1000);
         return nowInSeconds > payload.exp;
       }
-
       /**
        * Checks if a valid, non-expired access token exists.
        * @returns {boolean} True if authenticated, false otherwise.
@@ -317,7 +559,6 @@
       value: function isAuthenticated() {
         return !this.isAccessTokenExpired();
       }
-
       /**
        * Attempts to refresh the access token using the stored refresh token.
        * @returns {Promise<boolean>} True if refresh was successful, false otherwise.
@@ -325,50 +566,50 @@
     }, {
       key: "refreshAccessToken",
       value: (function () {
-        var _refreshAccessToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {
-          var refreshToken, _yield$this$onRefresh, newAccessToken, newRefreshToken, _t;
-          return _regenerator().w(function (_context) {
-            while (1) switch (_context.n) {
+        var _refreshAccessToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3() {
+          var refreshToken, _yield$this$onRefresh, newAccessToken, newRefreshToken, _t3;
+          return _regenerator().w(function (_context3) {
+            while (1) switch (_context3.n) {
               case 0:
                 if (!(!this.onRefresh || typeof this.onRefresh !== 'function')) {
-                  _context.n = 1;
+                  _context3.n = 1;
                   break;
                 }
                 console.error('onRefresh function not configured. Cannot refresh token.');
-                return _context.a(2, false);
+                return _context3.a(2, false);
               case 1:
                 refreshToken = this.getRefreshToken();
                 if (refreshToken) {
-                  _context.n = 2;
+                  _context3.n = 2;
                   break;
                 }
                 console.log('No refresh token available.');
-                return _context.a(2, false);
+                return _context3.a(2, false);
               case 2:
-                _context.p = 2;
-                _context.n = 3;
+                _context3.p = 2;
+                _context3.n = 3;
                 return this.onRefresh(refreshToken);
               case 3:
-                _yield$this$onRefresh = _context.v;
+                _yield$this$onRefresh = _context3.v;
                 newAccessToken = _yield$this$onRefresh.newAccessToken;
                 newRefreshToken = _yield$this$onRefresh.newRefreshToken;
                 if (newAccessToken) {
-                  _context.n = 4;
+                  _context3.n = 4;
                   break;
                 }
                 throw new Error("Refresh call did not return a new access token.");
               case 4:
-                this.login(newAccessToken, newRefreshToken); // Store new tokens
-                return _context.a(2, true);
+                this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
+                return _context3.a(2, true);
               case 5:
-                _context.p = 5;
-                _t = _context.v;
-                console.error('Failed to refresh token:', _t);
+                _context3.p = 5;
+                _t3 = _context3.v;
+                console.error('Failed to refresh token:', _t3);
                 // If refresh fails (e.g., refresh token is also expired), log the user out.
                 this.logout();
-                return _context.a(2, false);
+                return _context3.a(2, false);
             }
-          }, _callee, this, [[2, 5]]);
+          }, _callee3, this, [[2, 5]]);
         }));
         function refreshAccessToken() {
           return _refreshAccessToken.apply(this, arguments);
@@ -378,41 +619,45 @@
     }]);
   }();
 
-  var AuthContext = /*#__PURE__*/react.createContext(null);
+  var AuthContext = /*#__PURE__*/React.createContext(null);
   function AuthProvider(_ref) {
     var children = _ref.children,
       config = _ref.config;
-    var authClient = react.useMemo(function () {
+    var authClient = React.useMemo(function () {
       return new JwtAuthClient(config);
     }, [config]);
-    var _useState = react.useState(authClient.getAccessToken()),
+    var _useState = React.useState(authClient.getAccessToken()),
       _useState2 = _slicedToArray(_useState, 2),
       accessToken = _useState2[0],
       setAccessToken = _useState2[1];
-    var _useState3 = react.useState(true),
+    var _useState3 = React.useState(true),
       _useState4 = _slicedToArray(_useState3, 2),
       loading = _useState4[0],
       setLoading = _useState4[1];
-    var _useState5 = react.useState(false),
+    var _useState5 = React.useState(false),
       _useState6 = _slicedToArray(_useState5, 2),
       isRefreshing = _useState6[0],
       setIsRefreshing = _useState6[1];
-
+    var _useState7 = React.useState(false),
+      _useState8 = _slicedToArray(_useState7, 2),
+      isVerified = _useState8[0],
+      setIsVerified = _useState8[1];
     // Initial check on component mount
-    react.useEffect(function () {
+    React.useEffect(function () {
       var initializeAuth = /*#__PURE__*/function () {
         var _ref2 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {
-          var refreshToken, success;
+          var verified, refreshToken, success;
           return _regenerator().w(function (_context) {
             while (1) switch (_context.n) {
               case 0:
+                verified = false;
                 if (!authClient.isAccessTokenExpired()) {
-                  _context.n = 2;
+                  _context.n = 4;
                   break;
                 }
                 refreshToken = authClient.getRefreshToken();
                 if (!refreshToken) {
-                  _context.n = 2;
+                  _context.n = 3;
                   break;
                 }
                 setIsRefreshing(true);
@@ -420,13 +665,28 @@
                 return authClient.refreshAccessToken();
               case 1:
                 success = _context.v;
-                if (success) {
-                  setAccessToken(authClient.getAccessToken());
+                if (!success) {
+                  _context.n = 3;
+                  break;
                 }
+                setAccessToken(authClient.getAccessToken());
+                _context.n = 2;
+                return authClient.verifyToken();
               case 2:
+                verified = _context.v;
+              case 3:
+                _context.n = 6;
+                break;
+              case 4:
+                _context.n = 5;
+                return authClient.verifyToken();
+              case 5:
+                verified = _context.v;
+              case 6:
+                setIsVerified(verified);
                 setLoading(false);
                 setIsRefreshing(false);
-              case 3:
+              case 7:
                 return _context.a(2);
             }
           }, _callee);
@@ -437,39 +697,87 @@
       }();
       initializeAuth();
     }, [authClient]);
-    var isAuthenticated = react.useMemo(function () {
-      return !!accessToken && !authClient.isAccessTokenExpired();
-    }, [accessToken, authClient]);
-    var userPayload = react.useMemo(function () {
+    var isAuthenticated = React.useMemo(function () {
+      return !!accessToken && !authClient.isAccessTokenExpired() && isVerified;
+    }, [accessToken, authClient, isVerified]);
+    var userPayload = React.useMemo(function () {
       return isAuthenticated ? authClient.getPayload() : null;
     }, [isAuthenticated, authClient]);
-    var login = react.useCallback(function (newAccessToken, newRefreshToken) {
-      authClient.login(newAccessToken, newRefreshToken);
-      setAccessToken(newAccessToken);
-    }, [authClient]);
-    var logout = react.useCallback(function () {
+    var login = React.useCallback(/*#__PURE__*/function () {
+      var _ref3 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(credentials, loginUrl) {
+        var success, verified;
+        return _regenerator().w(function (_context2) {
+          while (1) switch (_context2.n) {
+            case 0:
+              setLoading(true);
+              _context2.n = 1;
+              return authClient.login(credentials, loginUrl);
+            case 1:
+              success = _context2.v;
+              if (!success) {
+                _context2.n = 3;
+                break;
+              }
+              setAccessToken(authClient.getAccessToken());
+              _context2.n = 2;
+              return authClient.verifyToken();
+            case 2:
+              verified = _context2.v;
+              setIsVerified(verified);
+              _context2.n = 4;
+              break;
+            case 3:
+              setAccessToken(null);
+              setIsVerified(false);
+            case 4:
+              setLoading(false);
+              return _context2.a(2, success);
+          }
+        }, _callee2);
+      }));
+      return function (_x, _x2) {
+        return _ref3.apply(this, arguments);
+      };
+    }(), [authClient]);
+    var logout = React.useCallback(function () {
       authClient.logout();
       setAccessToken(null);
     }, [authClient]);
-    var refreshAccessToken = react.useCallback(/*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
+    var refreshAccessToken = React.useCallback(/*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3() {
       var success;
-      return _regenerator().w(function (_context2) {
-        while (1) switch (_context2.n) {
+      return _regenerator().w(function (_context3) {
+        while (1) switch (_context3.n) {
           case 0:
             setIsRefreshing(true);
-            _context2.n = 1;
+            _context3.n = 1;
             return authClient.refreshAccessToken();
           case 1:
-            success = _context2.v;
+            success = _context3.v;
             if (success) {
               setAccessToken(authClient.getAccessToken());
             }
             setIsRefreshing(false);
-            return _context2.a(2, success);
+            return _context3.a(2, success);
         }
-      }, _callee2);
+      }, _callee3);
     })), [authClient]);
-    var value = react.useMemo(function () {
+    var verifyToken = React.useCallback(/*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4() {
+      var verified;
+      return _regenerator().w(function (_context4) {
+        while (1) switch (_context4.n) {
+          case 0:
+            setLoading(true);
+            _context4.n = 1;
+            return authClient.verifyToken();
+          case 1:
+            verified = _context4.v;
+            setIsVerified(verified);
+            setLoading(false);
+            return _context4.a(2, verified);
+        }
+      }, _callee4);
+    })), [authClient]);
+    var value = React.useMemo(function () {
       return {
         isAuthenticated: isAuthenticated,
         userPayload: userPayload,
@@ -478,16 +786,40 @@
         logout: logout,
         loading: loading,
         isRefreshing: isRefreshing,
-        refreshAccessToken: refreshAccessToken
+        refreshAccessToken: refreshAccessToken,
+        verifyToken: verifyToken,
+        getRoles: function getRoles() {
+          return authClient.getRoles();
+        },
+        hasRole: function hasRole(role) {
+          return authClient.hasRole(role);
+        },
+        hasAnyRole: function hasAnyRole(roles) {
+          return authClient.hasAnyRole(roles);
+        },
+        hasAllRoles: function hasAllRoles(roles) {
+          return authClient.hasAllRoles(roles);
+        },
+        getPermissions: function getPermissions() {
+          return authClient.getPermissions();
+        },
+        hasPermission: function hasPermission(permission) {
+          return authClient.hasPermission(permission);
+        },
+        hasAnyPermission: function hasAnyPermission(permissions) {
+          return authClient.hasAnyPermission(permissions);
+        },
+        hasAllPermissions: function hasAllPermissions(permissions) {
+          return authClient.hasAllPermissions(permissions);
+        }
       };
-    }, [isAuthenticated, userPayload, accessToken, login, logout, loading, isRefreshing, refreshAccessToken]);
-    return /*#__PURE__*/jsxRuntime.jsx(AuthContext.Provider, {
-      value: value,
-      children: children
-    });
+    }, [isAuthenticated, userPayload, accessToken, login, logout, loading, isRefreshing, refreshAccessToken, verifyToken, authClient]);
+    return /*#__PURE__*/React__default["default"].createElement(AuthContext.Provider, {
+      value: value
+    }, children);
   }
   function useAuth() {
-    var context = react.useContext(AuthContext);
+    var context = React.useContext(AuthContext);
     if (context === null) {
       throw new Error('useAuth must be used within an AuthProvider');
     }

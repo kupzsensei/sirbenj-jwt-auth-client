@@ -1,5 +1,5 @@
-import { JwtAuthClient } from './JwtAuthClient.js';
-import { AuthProvider, useAuth } from './react/AuthContext.js';
+import { JwtAuthClient } from './JwtAuthClient';
+import { AuthProvider, useAuth } from './react/AuthContext';
 
 // Export core client for vanilla JS usage
 export { JwtAuthClient };
