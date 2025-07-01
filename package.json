@@ -1,6 +1,6 @@
 {
   "name": "sirbenj-jwt-auth-client",
-  "version": "1.2.0",
+  "version": "1.9.0",
   "description": "A lightweight, dependency-free JS library for frontend JWT authentication with refresh token support.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

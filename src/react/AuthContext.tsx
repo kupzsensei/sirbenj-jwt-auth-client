@@ -41,8 +41,8 @@ export function AuthProvider({ children, config }: { children: React.ReactNode; 
 
     const login = useCallback(async (credentials: LoginCredentials, loginUrl?: string) => {
         setLoading(true);
-        const success = await authClient.login(credentials, loginUrl);
-        if (success) {
+        const result = await authClient.login(credentials, loginUrl);
+        if (result) {
             setAccessToken(authClient.getAccessToken());
             const verified = await authClient.verifyToken();
             setIsVerified(verified);
@@ -51,7 +51,7 @@ export function AuthProvider({ children, config }: { children: React.ReactNode; 
             setIsVerified(false);
         }
         setLoading(false);
-        return success;
+        return result;
     }, [authClient]);
 
     const logout = useCallback(() => {

@@ -7,9 +7,11 @@ function App() {
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
-    const success = await login({ username, password });
-    if (success) {
-      console.log('Login successful!');
+    const result = await login({ username, password });
+    if (result) {
+      console.log('Login successful!', result.tokenResponse.accessToken, result.apiResponse);
+      // You can access the tokens directly from result.tokenResponse
+      // And the full API response from result.apiResponse
     } else {
       console.error('Login failed!');
     }

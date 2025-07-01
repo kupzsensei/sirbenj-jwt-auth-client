@@ -47,6 +47,14 @@ function _createClass(e, r, t) {
     writable: !1
   }), e;
 }
+function _defineProperty(e, r, t) {
+  return (r = _toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: !0,
+    configurable: !0,
+    writable: !0
+  }) : e[r] = t, e;
+}
 function _iterableToArrayLimit(r, l) {
   var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
   if (null != t) {
@@ -76,6 +84,27 @@ function _iterableToArrayLimit(r, l) {
 }
 function _nonIterableRest() {
   throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function (r) {
+      return Object.getOwnPropertyDescriptor(e, r).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1; r < arguments.length; r++) {
+    var t = null != arguments[r] ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), !0).forEach(function (r) {
+      _defineProperty(e, r, t[r]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) {
+      Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r));
+    });
+  }
+  return e;
 }
 function _regenerator() {
   /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/babel/babel/blob/main/packages/babel-helpers/LICENSE */
@@ -232,6 +261,9 @@ var JwtAuthClient = /*#__PURE__*/function () {
     this.onRefresh = options.onRefresh;
     this.onLogin = options.onLogin;
     this.onVerify = options.onVerify;
+    this.loginApiConfig = options.loginApiConfig;
+    this.refreshApiConfig = options.refreshApiConfig;
+    this.verifyApiConfig = options.verifyApiConfig;
   }
   /**
    * Saves the tokens to the configured storage.
@@ -253,23 +285,24 @@ var JwtAuthClient = /*#__PURE__*/function () {
     /**
      * Handles the login process by calling the provided onLogin function or a default fetch.
      * @param {object} credentials - User credentials (e.g., { username, password }).
-     * @param {string} loginUrl - The URL for the login API endpoint.
-     * @returns {Promise<boolean>} True if login was successful, false otherwise.
+     * @param {string} [loginUrl] - The URL for the login API endpoint. Overrides the one provided in options.
+     * @returns {Promise<{ tokenResponse: TokenResponse, apiResponse: any } | null>} The token response data and the full API response if login was successful, null otherwise.
      */
   }, {
     key: "login",
     value: (function () {
       var _login = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(credentials, loginUrl) {
-        var responseData, response, _responseData, accessToken, refreshToken, _t;
+        var _a, _b, _c, _d, _e, _f, _g, finalLoginUrl, tokenData, rawResponseData, response, accessToken, refreshToken, _t;
         return _regenerator().w(function (_context) {
           while (1) switch (_context.n) {
             case 0:
-              if (!(!this.onLogin && !loginUrl)) {
+              finalLoginUrl = loginUrl || ((_a = this.loginApiConfig) === null || _a === void 0 ? void 0 : _a.url);
+              if (!(!this.onLogin && !finalLoginUrl)) {
                 _context.n = 1;
                 break;
               }
-              console.error('Neither onLogin function nor loginUrl provided. Cannot perform login.');
-              return _context.a(2, false);
+              console.error('Neither onLogin function nor loginUrl/loginApiConfig provided. Cannot perform login.');
+              return _context.a(2, null);
             case 1:
               _context.p = 1;
               if (!this.onLogin) {
@@ -279,52 +312,65 @@ var JwtAuthClient = /*#__PURE__*/function () {
               _context.n = 2;
               return this.onLogin(credentials);
             case 2:
-              responseData = _context.v;
-              _context.n = 8;
+              tokenData = _context.v;
+              // If onLogin is used, we don't have the raw API response unless the user provides it.
+              // For now, we'll just return the tokenData as the apiResponse.
+              rawResponseData = tokenData;
+              _context.n = 9;
               break;
             case 3:
-              if (loginUrl) {
-                _context.n = 4;
+              if (!finalLoginUrl) {
+                _context.n = 8;
                 break;
               }
-              throw new Error('loginUrl must be provided if onLogin function is not configured.');
-            case 4:
-              _context.n = 5;
-              return fetch(loginUrl, {
-                method: 'POST',
-                headers: {
+              _context.n = 4;
+              return fetch(finalLoginUrl, {
+                method: ((_b = this.loginApiConfig) === null || _b === void 0 ? void 0 : _b.method) || 'POST',
+                headers: _objectSpread2({
                   'Content-Type': 'application/json'
-                },
+                }, (_c = this.loginApiConfig) === null || _c === void 0 ? void 0 : _c.headers),
                 body: JSON.stringify(credentials)
               });
-            case 5:
+            case 4:
               response = _context.v;
               if (response.ok) {
-                _context.n = 6;
+                _context.n = 5;
                 break;
               }
               throw new Error("Login failed with status: ".concat(response.status));
-            case 6:
-              _context.n = 7;
+            case 5:
+              _context.n = 6;
               return response.json();
-            case 7:
-              responseData = _context.v;
-            case 8:
-              _responseData = responseData, accessToken = _responseData.accessToken, refreshToken = _responseData.refreshToken;
+            case 6:
+              rawResponseData = _context.v;
+              accessToken = this.getDeepValue(rawResponseData, (_e = (_d = this.loginApiConfig) === null || _d === void 0 ? void 0 : _d.responseMapping) === null || _e === void 0 ? void 0 : _e.accessToken);
+              refreshToken = this.getDeepValue(rawResponseData, (_g = (_f = this.loginApiConfig) === null || _f === void 0 ? void 0 : _f.responseMapping) === null || _g === void 0 ? void 0 : _g.refreshToken);
               if (accessToken) {
-                _context.n = 9;
+                _context.n = 7;
                 break;
               }
               throw new Error('Login response did not contain an access token.');
+            case 7:
+              tokenData = {
+                accessToken: accessToken,
+                refreshToken: refreshToken
+              };
+              _context.n = 9;
+              break;
+            case 8:
+              throw new Error('Login function or URL/API config not configured.');
             case 9:
-              this.setTokens(accessToken, refreshToken);
-              return _context.a(2, true);
+              this.setTokens(tokenData.accessToken, tokenData.refreshToken);
+              return _context.a(2, {
+                tokenResponse: tokenData,
+                apiResponse: rawResponseData
+              });
             case 10:
               _context.p = 10;
               _t = _context.v;
               console.error('Login failed:', _t);
               this.logout(); // Clear any existing tokens on login failure
-              return _context.a(2, false);
+              return _context.a(2, null);
           }
         }, _callee, this, [[1, 10]]);
       }));
@@ -334,7 +380,7 @@ var JwtAuthClient = /*#__PURE__*/function () {
       return login;
     }()
     /**
-     * Verifies the access token with the backend using the provided onVerify function.
+     * Verifies the access token with the backend using the provided onVerify function or verifyApiConfig.
      * @returns {Promise<boolean>} True if token is valid, false otherwise.
      */
     )
@@ -342,24 +388,21 @@ var JwtAuthClient = /*#__PURE__*/function () {
     key: "verifyToken",
     value: (function () {
       var _verifyToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
-        var accessToken, isValid, _t2;
+        var _a, accessToken, isValid, response, rawResponseData, _isValid, _t2, _t3;
         return _regenerator().w(function (_context2) {
           while (1) switch (_context2.n) {
             case 0:
-              if (!(!this.onVerify || typeof this.onVerify !== 'function')) {
+              accessToken = this.getAccessToken();
+              if (accessToken) {
                 _context2.n = 1;
                 break;
               }
-              console.warn('onVerify function not configured. Cannot verify token with backend.');
-              return _context2.a(2, true);
+              return _context2.a(2, false);
             case 1:
-              accessToken = this.getAccessToken();
-              if (accessToken) {
-                _context2.n = 2;
+              if (!this.onVerify) {
+                _context2.n = 5;
                 break;
               }
-              return _context2.a(2, false);
-            case 2:
               _context2.p = 2;
               _context2.n = 3;
               return this.onVerify(accessToken);
@@ -376,8 +419,44 @@ var JwtAuthClient = /*#__PURE__*/function () {
               console.error('Error during token verification:', _t2);
               this.logout(); // Logout on verification error
               return _context2.a(2, false);
+            case 5:
+              if (!this.verifyApiConfig) {
+                _context2.n = 10;
+                break;
+              }
+              _context2.p = 6;
+              _context2.n = 7;
+              return fetch(this.verifyApiConfig.url, {
+                method: this.verifyApiConfig.method || 'POST',
+                headers: _objectSpread2({
+                  'Authorization': "Bearer ".concat(accessToken)
+                }, this.verifyApiConfig.headers)
+              });
+            case 7:
+              response = _context2.v;
+              _context2.n = 8;
+              return response.json();
+            case 8:
+              rawResponseData = _context2.v;
+              _isValid = this.getDeepValue(rawResponseData, (_a = this.verifyApiConfig.responseMapping) === null || _a === void 0 ? void 0 : _a.isValid);
+              if (!_isValid) {
+                console.warn('Backend verification failed for access token.');
+                this.logout();
+              }
+              return _context2.a(2, _isValid);
+            case 9:
+              _context2.p = 9;
+              _t3 = _context2.v;
+              console.error('Error during token verification:', _t3);
+              this.logout();
+              return _context2.a(2, false);
+            case 10:
+              console.warn('onVerify function or verifyApiConfig not configured. Assuming token is valid based on local expiration.');
+              return _context2.a(2, !this.isAccessTokenExpired());
+            case 11:
+              return _context2.a(2);
           }
-        }, _callee2, this, [[2, 4]]);
+        }, _callee2, this, [[6, 9], [2, 4]]);
       }));
       function verifyToken() {
         return _verifyToken.apply(this, arguments);
@@ -552,32 +631,29 @@ var JwtAuthClient = /*#__PURE__*/function () {
       return !this.isAccessTokenExpired();
     }
     /**
-     * Attempts to refresh the access token using the stored refresh token.
+     * Attempts to refresh the access token using the stored refresh token or refreshApiConfig.
      * @returns {Promise<boolean>} True if refresh was successful, false otherwise.
      */
   }, {
     key: "refreshAccessToken",
     value: (function () {
       var _refreshAccessToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3() {
-        var refreshToken, _yield$this$onRefresh, newAccessToken, newRefreshToken, _t3;
+        var _a, _b, refreshToken, _yield$this$onRefresh, newAccessToken, newRefreshToken, response, responseData, _newAccessToken, _newRefreshToken, _t4, _t5;
         return _regenerator().w(function (_context3) {
           while (1) switch (_context3.n) {
             case 0:
-              if (!(!this.onRefresh || typeof this.onRefresh !== 'function')) {
-                _context3.n = 1;
-                break;
-              }
-              console.error('onRefresh function not configured. Cannot refresh token.');
-              return _context3.a(2, false);
-            case 1:
               refreshToken = this.getRefreshToken();
               if (refreshToken) {
-                _context3.n = 2;
+                _context3.n = 1;
                 break;
               }
               console.log('No refresh token available.');
               return _context3.a(2, false);
-            case 2:
+            case 1:
+              if (!this.onRefresh) {
+                _context3.n = 6;
+                break;
+              }
               _context3.p = 2;
               _context3.n = 3;
               return this.onRefresh(refreshToken);
@@ -595,19 +671,82 @@ var JwtAuthClient = /*#__PURE__*/function () {
               return _context3.a(2, true);
             case 5:
               _context3.p = 5;
-              _t3 = _context3.v;
-              console.error('Failed to refresh token:', _t3);
-              // If refresh fails (e.g., refresh token is also expired), log the user out.
+              _t4 = _context3.v;
+              console.error('Failed to refresh token:', _t4);
               this.logout();
               return _context3.a(2, false);
+            case 6:
+              if (!this.refreshApiConfig) {
+                _context3.n = 13;
+                break;
+              }
+              _context3.p = 7;
+              _context3.n = 8;
+              return fetch(this.refreshApiConfig.url, {
+                method: this.refreshApiConfig.method || 'POST',
+                headers: _objectSpread2({
+                  'Content-Type': 'application/json'
+                }, this.refreshApiConfig.headers),
+                body: JSON.stringify({
+                  refreshToken: refreshToken
+                })
+              });
+            case 8:
+              response = _context3.v;
+              if (response.ok) {
+                _context3.n = 9;
+                break;
+              }
+              throw new Error("Refresh failed with status: ".concat(response.status));
+            case 9:
+              _context3.n = 10;
+              return response.json();
+            case 10:
+              responseData = _context3.v;
+              _newAccessToken = this.getDeepValue(responseData, (_a = this.refreshApiConfig.responseMapping) === null || _a === void 0 ? void 0 : _a.newAccessToken);
+              _newRefreshToken = this.getDeepValue(responseData, (_b = this.refreshApiConfig.responseMapping) === null || _b === void 0 ? void 0 : _b.newRefreshToken);
+              if (_newAccessToken) {
+                _context3.n = 11;
+                break;
+              }
+              throw new Error("Refresh call did not return a new access token.");
+            case 11:
+              this.setTokens(_newAccessToken, _newRefreshToken); // Store new tokens
+              return _context3.a(2, true);
+            case 12:
+              _context3.p = 12;
+              _t5 = _context3.v;
+              console.error('Failed to refresh token:', _t5);
+              this.logout();
+              return _context3.a(2, false);
+            case 13:
+              console.error('onRefresh function or refreshApiConfig not configured. Cannot refresh token.');
+              return _context3.a(2, false);
+            case 14:
+              return _context3.a(2);
           }
-        }, _callee3, this, [[2, 5]]);
+        }, _callee3, this, [[7, 12], [2, 5]]);
       }));
       function refreshAccessToken() {
         return _refreshAccessToken.apply(this, arguments);
       }
       return refreshAccessToken;
-    }())
+    }()
+    /**
+     * Safely extracts a value from an object using a dot-notation path.
+     * @param obj The object to extract from.
+     * @param path The dot-notation path (e.g., 'data.user.id').
+     * @returns The extracted value or undefined if not found.
+     */
+    )
+  }, {
+    key: "getDeepValue",
+    value: function getDeepValue(obj, path) {
+      if (!path || !obj) return undefined;
+      return path.split('.').reduce(function (acc, part) {
+        return acc && acc[part];
+      }, obj);
+    }
   }]);
 }();
 
@@ -697,7 +836,7 @@ function AuthProvider(_ref) {
   }, [isAuthenticated, authClient]);
   var login = useCallback(/*#__PURE__*/function () {
     var _ref3 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(credentials, loginUrl) {
-      var success, verified;
+      var result, verified;
       return _regenerator().w(function (_context2) {
         while (1) switch (_context2.n) {
           case 0:
@@ -705,8 +844,8 @@ function AuthProvider(_ref) {
             _context2.n = 1;
             return authClient.login(credentials, loginUrl);
           case 1:
-            success = _context2.v;
-            if (!success) {
+            result = _context2.v;
+            if (!result) {
               _context2.n = 3;
               break;
             }
@@ -723,7 +862,7 @@ function AuthProvider(_ref) {
             setIsVerified(false);
           case 4:
             setLoading(false);
-            return _context2.a(2, success);
+            return _context2.a(2, result);
         }
       }, _callee2);
     }));

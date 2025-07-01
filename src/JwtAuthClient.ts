@@ -13,6 +13,9 @@ export class JwtAuthClient {
     private onRefresh: JwtAuthClientOptions['onRefresh'];
     private onLogin: JwtAuthClientOptions['onLogin'];
     private onVerify: JwtAuthClientOptions['onVerify'];
+    private loginApiConfig?: JwtAuthClientOptions['loginApiConfig'];
+    private refreshApiConfig?: JwtAuthClientOptions['refreshApiConfig'];
+    private verifyApiConfig?: JwtAuthClientOptions['verifyApiConfig'];
 
     /**
      * @constructor
@@ -27,6 +30,9 @@ export class JwtAuthClient {
         this.onRefresh = options.onRefresh;
         this.onLogin = options.onLogin;
         this.onVerify = options.onVerify;
+        this.loginApiConfig = options.loginApiConfig;
+        this.refreshApiConfig = options.refreshApiConfig;
+        this.verifyApiConfig = options.verifyApiConfig;
     }
 
     /**
@@ -34,7 +40,7 @@ export class JwtAuthClient {
      * @param {string} accessToken - The access JWT string.
      * @param {string} [refreshToken] - The optional refresh JWT string.
      */
-    setTokens(accessToken: string, refreshToken?: string) {
+    public setTokens(accessToken: string, refreshToken?: string): void {
         if (typeof accessToken !== 'string' || accessToken.split('.').length !== 3) {
             console.error('Invalid Access Token provided to setTokens method.');
             return;
@@ -48,27 +54,32 @@ export class JwtAuthClient {
     /**
      * Handles the login process by calling the provided onLogin function or a default fetch.
      * @param {object} credentials - User credentials (e.g., { username, password }).
-     * @param {string} loginUrl - The URL for the login API endpoint.
-     * @returns {Promise<boolean>} True if login was successful, false otherwise.
+     * @param {string} [loginUrl] - The URL for the login API endpoint. Overrides the one provided in options.
+     * @returns {Promise<{ tokenResponse: TokenResponse, apiResponse: any } | null>} The token response data and the full API response if login was successful, null otherwise.
      */
-    async login(credentials: LoginCredentials, loginUrl?: string): Promise<boolean> {
-        if (!this.onLogin && !loginUrl) {
-            console.error('Neither onLogin function nor loginUrl provided. Cannot perform login.');
-            return false;
+    public async login(credentials: LoginCredentials, loginUrl?: string): Promise<{ tokenResponse: TokenResponse, apiResponse: any } | null> {
+        const finalLoginUrl = loginUrl || this.loginApiConfig?.url;
+
+        if (!this.onLogin && !finalLoginUrl) {
+            console.error('Neither onLogin function nor loginUrl/loginApiConfig provided. Cannot perform login.');
+            return null;
         }
 
         try {
-            let responseData;
+            let tokenData: TokenResponse;
+            let rawResponseData: any;
+
             if (this.onLogin) {
-                responseData = await this.onLogin(credentials);
-            } else {
-                if (!loginUrl) {
-                    throw new Error('loginUrl must be provided if onLogin function is not configured.');
-                }
-                const response = await fetch(loginUrl, {
-                    method: 'POST',
+                tokenData = await this.onLogin(credentials);
+                // If onLogin is used, we don't have the raw API response unless the user provides it.
+                // For now, we'll just return the tokenData as the apiResponse.
+                rawResponseData = tokenData;
+            } else if (finalLoginUrl) {
+                const response = await fetch(finalLoginUrl, {
+                    method: this.loginApiConfig?.method || 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        ...this.loginApiConfig?.headers,
                     },
                     body: JSON.stringify(credentials),
                 });
@@ -76,49 +87,76 @@ export class JwtAuthClient {
                 if (!response.ok) {
                     throw new Error(`Login failed with status: ${response.status}`);
                 }
-                responseData = await response.json();
+                rawResponseData = await response.json();
+                const accessToken = this.getDeepValue(rawResponseData, this.loginApiConfig?.responseMapping?.accessToken);
+                const refreshToken = this.getDeepValue(rawResponseData, this.loginApiConfig?.responseMapping?.refreshToken);
+
+                if (!accessToken) {
+                    throw new Error('Login response did not contain an access token.');
+                }
+                tokenData = { accessToken, refreshToken };
+            } else {
+                throw new Error('Login function or URL/API config not configured.');
             }
 
-            const { accessToken, refreshToken } = responseData;
-            if (!accessToken) {
-                throw new Error('Login response did not contain an access token.');
-            }
-
-            this.setTokens(accessToken, refreshToken);
-            return true;
+            this.setTokens(tokenData.accessToken, tokenData.refreshToken);
+            return { tokenResponse: tokenData, apiResponse: rawResponseData };
         } catch (error) {
             console.error('Login failed:', error);
             this.logout(); // Clear any existing tokens on login failure
-            return false;
+            return null;
         }
     }
 
     /**
-     * Verifies the access token with the backend using the provided onVerify function.
+     * Verifies the access token with the backend using the provided onVerify function or verifyApiConfig.
      * @returns {Promise<boolean>} True if token is valid, false otherwise.
      */
-    async verifyToken(): Promise<boolean> {
-        if (!this.onVerify || typeof this.onVerify !== 'function') {
-            console.warn('onVerify function not configured. Cannot verify token with backend.');
-            return true; // Assume valid if no verification function is provided
-        }
-
+    public async verifyToken(): Promise<boolean> {
         const accessToken = this.getAccessToken();
         if (!accessToken) {
             return false;
         }
 
-        try {
-            const isValid = await this.onVerify(accessToken);
-            if (!isValid) {
-                console.warn('Backend verification failed for access token.');
-                this.logout(); // Invalidate local session if backend says token is invalid
+        if (this.onVerify) {
+            try {
+                const isValid = await this.onVerify(accessToken);
+                if (!isValid) {
+                    console.warn('Backend verification failed for access token.');
+                    this.logout(); // Invalidate local session if backend says token is invalid
+                }
+                return isValid;
+            } catch (error) {
+                console.error('Error during token verification:', error);
+                this.logout(); // Logout on verification error
+                return false;
             }
-            return isValid;
-        } catch (error) {
-            console.error('Error during token verification:', error);
-            this.logout(); // Logout on verification error
-            return false;
+        } else if (this.verifyApiConfig) {
+            try {
+                const response = await fetch(this.verifyApiConfig.url, {
+                    method: this.verifyApiConfig.method || 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        ...this.verifyApiConfig.headers,
+                    },
+                });
+
+                const rawResponseData = await response.json();
+                const isValid = this.getDeepValue(rawResponseData, this.verifyApiConfig.responseMapping?.isValid);
+
+                if (!isValid) {
+                    console.warn('Backend verification failed for access token.');
+                    this.logout();
+                }
+                return isValid;
+            } catch (error) {
+                console.error('Error during token verification:', error);
+                this.logout();
+                return false;
+            }
+        } else {
+            console.warn('onVerify function or verifyApiConfig not configured. Assuming token is valid based on local expiration.');
+            return !this.isAccessTokenExpired();
         }
     }
 
@@ -126,7 +164,7 @@ export class JwtAuthClient {
      * Retrieves roles from the decoded access token payload.
      * @returns {string[]} An array of roles or an empty array if not found.
      */
-    getRoles() {
+    public getRoles(): string[] {
         const payload = this.getPayload();
         if (payload && Array.isArray(payload[this.rolesClaim])) {
             return payload[this.rolesClaim];
@@ -139,7 +177,7 @@ export class JwtAuthClient {
      * @param {string} role - The role to check for.
      * @returns {boolean} True if the user has the role, false otherwise.
      */
-    hasRole(role: string) {
+    public hasRole(role: string): boolean {
         return this.getRoles().includes(role);
     }
 
@@ -148,7 +186,7 @@ export class JwtAuthClient {
      * @param {string[]} roles - An array of roles to check for.
      * @returns {boolean} True if the user has at least one of the roles, false otherwise.
      */
-    hasAnyRole(roles: string[]) {
+    public hasAnyRole(roles: string[]): boolean {
         const userRoles = this.getRoles();
         return roles.some(role => userRoles.includes(role));
     }
@@ -158,7 +196,7 @@ export class JwtAuthClient {
      * @param {string[]} roles - An array of roles to check for.
      * @returns {boolean} True if the user has all of the roles, false otherwise.
      */
-    hasAllRoles(roles: string[]) {
+    public hasAllRoles(roles: string[]): boolean {
         const userRoles = this.getRoles();
         return roles.every(role => userRoles.includes(role));
     }
@@ -167,7 +205,7 @@ export class JwtAuthClient {
      * Retrieves permissions from the decoded access token payload.
      * @returns {string[]} An array of permissions or an empty array if not found.
      */
-    getPermissions(): string[] {
+    public getPermissions(): string[] {
         const payload = this.getPayload();
         if (payload && Array.isArray(payload[this.permissionsClaim])) {
             return payload[this.permissionsClaim] as string[];
@@ -180,7 +218,7 @@ export class JwtAuthClient {
      * @param {string} permission - The permission to check for.
      * @returns {boolean} True if the user has the permission, false otherwise.
      */
-    hasPermission(permission: string): boolean {
+    public hasPermission(permission: string): boolean {
         return this.getPermissions().includes(permission);
     }
 
@@ -189,7 +227,7 @@ export class JwtAuthClient {
      * @param {string[]} permissions - An array of permissions to check for.
      * @returns {boolean} True if the user has at least one of the permissions, false otherwise.
      */
-    hasAnyPermission(permissions: string[]): boolean {
+    public hasAnyPermission(permissions: string[]): boolean {
         const userPermissions = this.getPermissions();
         return permissions.some((permission: string) => userPermissions.includes(permission));
     }
@@ -199,7 +237,7 @@ export class JwtAuthClient {
      * @param {string[]} permissions - An array of permissions to check for.
      * @returns {boolean} True if the user has all of the permissions, false otherwise.
      */
-    hasAllPermissions(permissions: string[]): boolean {
+    public hasAllPermissions(permissions: string[]): boolean {
         const userPermissions = this.getPermissions();
         return permissions.every((permission: string) => userPermissions.includes(permission));
     }
@@ -207,7 +245,7 @@ export class JwtAuthClient {
     /**
      * Removes tokens from storage.
      */
-    logout() {
+    public logout(): void {
         this.storage.removeItem(this.accessTokenKey);
         this.storage.removeItem(this.refreshTokenKey);
     }
@@ -216,7 +254,7 @@ export class JwtAuthClient {
      * Retrieves the raw access token from storage.
      * @returns {string|null} The access token string or null if not found.
      */
-    getAccessToken() {
+    public getAccessToken(): string | null {
         return this.storage.getItem(this.accessTokenKey);
     }
 
@@ -224,7 +262,7 @@ export class JwtAuthClient {
      * Retrieves the raw refresh token from storage.
      * @returns {string|null} The refresh token string or null if not found.
      */
-    getRefreshToken() {
+    public getRefreshToken(): string | null {
         return this.storage.getItem(this.refreshTokenKey);
     }
 
@@ -232,7 +270,7 @@ export class JwtAuthClient {
      * Decodes the access token payload.
      * @returns {object|null} The decoded payload object or null if token is invalid/missing.
      */
-    getPayload() {
+    public getPayload(): JwtPayload | null {
         const token = this.getAccessToken();
         if (!token) return null;
 
@@ -250,7 +288,7 @@ export class JwtAuthClient {
      * Checks if the access token is expired.
      * @returns {boolean} True if the token is expired or doesn't exist.
      */
-    isAccessTokenExpired() {
+    public isAccessTokenExpired(): boolean {
         const payload = this.getPayload();
         if (!payload || typeof payload.exp !== 'number') {
             return true;
@@ -263,38 +301,77 @@ export class JwtAuthClient {
      * Checks if a valid, non-expired access token exists.
      * @returns {boolean} True if authenticated, false otherwise.
      */
-    isAuthenticated(): boolean {
+    public isAuthenticated(): boolean {
         return !this.isAccessTokenExpired();
     }
 
     /**
-     * Attempts to refresh the access token using the stored refresh token.
+     * Attempts to refresh the access token using the stored refresh token or refreshApiConfig.
      * @returns {Promise<boolean>} True if refresh was successful, false otherwise.
      */
-    async refreshAccessToken(): Promise<boolean> {
-        if (!this.onRefresh || typeof this.onRefresh !== 'function') {
-            console.error('onRefresh function not configured. Cannot refresh token.');
-            return false;
-        }
-
+    public async refreshAccessToken(): Promise<boolean> {
         const refreshToken = this.getRefreshToken();
         if (!refreshToken) {
             console.log('No refresh token available.');
             return false;
         }
 
-        try {
-            const { newAccessToken, newRefreshToken } = await this.onRefresh(refreshToken);
-            if (!newAccessToken) {
-                throw new Error("Refresh call did not return a new access token.");
+        if (this.onRefresh) {
+            try {
+                const { newAccessToken, newRefreshToken } = await this.onRefresh(refreshToken);
+                if (!newAccessToken) {
+                    throw new Error("Refresh call did not return a new access token.");
+                }
+                this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
+                return true;
+            } catch (error: any) {
+                console.error('Failed to refresh token:', error);
+                this.logout();
+                return false;
             }
-            this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
-            return true;
-        } catch (error: any) {
-            console.error('Failed to refresh token:', error);
-            // If refresh fails (e.g., refresh token is also expired), log the user out.
-            this.logout();
+        } else if (this.refreshApiConfig) {
+            try {
+                const response = await fetch(this.refreshApiConfig.url, {
+                    method: this.refreshApiConfig.method || 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...this.refreshApiConfig.headers,
+                    },
+                    body: JSON.stringify({ refreshToken }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Refresh failed with status: ${response.status}`);
+                }
+
+                const responseData = await response.json();
+                const newAccessToken = this.getDeepValue(responseData, this.refreshApiConfig.responseMapping?.newAccessToken);
+                const newRefreshToken = this.getDeepValue(responseData, this.refreshApiConfig.responseMapping?.newRefreshToken);
+
+                if (!newAccessToken) {
+                    throw new Error("Refresh call did not return a new access token.");
+                }
+                this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
+                return true;
+            } catch (error) {
+                console.error('Failed to refresh token:', error);
+                this.logout();
+                return false;
+            }
+        } else {
+            console.error('onRefresh function or refreshApiConfig not configured. Cannot refresh token.');
             return false;
         }
+    }
+
+    /**
+     * Safely extracts a value from an object using a dot-notation path.
+     * @param obj The object to extract from.
+     * @param path The dot-notation path (e.g., 'data.user.id').
+     * @returns The extracted value or undefined if not found.
+     */
+    private getDeepValue(obj: any, path?: string): any {
+        if (!path || !obj) return undefined;
+        return path.split('.').reduce((acc, part) => acc && acc[part], obj);
     }
 }

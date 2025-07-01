@@ -44,6 +44,35 @@ You can configure the storage mechanism and other options by passing a configura
 | `refreshTokenKey` | `String` | `'jwt_refresh_token'` | The key used to store the refresh token. |
 | `rolesClaim` | `String` | `'roles'` | The key in the JWT payload where roles are stored. |
 | `permissionsClaim` | `String` | `'permissions'` | The key in the JWT payload where permissions are stored. |
+| `loginApiConfig` | `Object` | `null` | Declarative configuration for the login API endpoint. |
+| `refreshApiConfig` | `Object` | `null` | Declarative configuration for the refresh API endpoint. |
+| `verifyApiConfig` | `Object` | `null` | Declarative configuration for the verify API endpoint. |
+
+#### Declarative API Configuration Details
+
+For `loginApiConfig`, `refreshApiConfig`, and `verifyApiConfig`, you can provide an object with the following structure:
+
+```typescript
+interface ApiConfig {
+  url: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  headers?: Record<string, string>;
+  responseMapping?: {
+    // For loginApiConfig:
+    accessToken?: string; // Path to access token in response (e.g., 'data.token')
+    refreshToken?: string; // Path to refresh token in response
+
+    // For refreshApiConfig:
+    newAccessToken?: string; // Path to new access token in response
+    newRefreshToken?: string; // Path to new refresh token in response
+
+    // For verifyApiConfig:
+    isValid?: string; // Path to boolean indicating validity (e.g., 'status.success')
+  };
+}
+```
+
+**Note:** If both a callback function (`onLogin`, `onRefresh`, `onVerify`) and a declarative API configuration (`loginApiConfig`, `refreshApiConfig`, `verifyApiConfig`) are provided for the same operation, the callback function will take precedence.
 
 --- 
 
@@ -55,33 +84,44 @@ For React applications, the library provides an `AuthProvider` component and a `
 
 ### Step 1: Configure Authentication Logic
 
-Create functions to handle login, token refresh, and token verification with your backend.
+Instead of providing `onLogin`, `onRefresh`, and `onVerify` functions, you can use declarative API configurations for common REST API patterns.
 
 ```javascript
-// src/auth.js
-
-// onLogin (Optional)
-export const onLogin = async (credentials) => {
-  const response = await fetch('https://your-api.com/auth/login', { /* ... */ });
-  const { accessToken, refreshToken } = await response.json();
-  return { accessToken, refreshToken };
+// src/authConfig.js
+const authConfig = {
+  loginApiConfig: {
+    url: 'https://your-api.com/auth/login',
+    method: 'POST',
+    // Map your API response to extract tokens
+    responseMapping: {
+      accessToken: 'data.accessToken', // e.g., if your response is { data: { accessToken: '...' } }
+      refreshToken: 'data.refreshToken',
+    },
+  },
+  refreshApiConfig: {
+    url: 'https://your-api.com/auth/refresh',
+    method: 'POST',
+    responseMapping: {
+      newAccessToken: 'token', // e.g., if your response is { token: '...' }
+      newRefreshToken: 'refreshToken',
+    },
+  },
+  verifyApiConfig: {
+    url: 'https://your-api.com/auth/verify',
+    method: 'GET',
+    responseMapping: {
+      isValid: 'status.success', // e.g., if your response is { status: { success: true } }
+    },
+  },
+  // ... other configurations like storage, accessTokenKey, etc.
 };
 
-// onRefresh (Required for refresh)
-export const onRefresh = async (refreshToken) => {
-  const response = await fetch('https://your-api.com/auth/refresh', { /* ... */ });
-  const { accessToken: newAccessToken } = await response.json();
-  return { newAccessToken };
-};
-
-// onVerify (Optional)
-export const onVerify = async (accessToken) => {
-  const response = await fetch('https://your-api.com/auth/verify', { /* ... */ });
-  return response.ok;
-};
+export default authConfig;
 ```
 
 ### Step 2: Wrap your app with `AuthProvider`
+
+Import your `authConfig` and pass it to the `AuthProvider`.
 
 ```javascript
 // src/index.js
@@ -89,9 +129,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AuthProvider } from 'sirbenj-jwt-auth-client';
-import { onLogin, onRefresh, onVerify } from './auth';
-
-const authConfig = { onLogin, onRefresh, onVerify };
+import authConfig from './authConfig'; // Import your declarative config
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -128,12 +166,14 @@ function LoginComponent() {
 
 ### `useAuth()` Return Values
 
+Here's a detailed breakdown of the values and functions returned by the `useAuth()` hook, along with examples:
+
 | Key | Type | Description |
 | --- | --- | --- |
 | `isAuthenticated` | `Boolean` | `true` if a valid, non-expired, and verified token exists. |
 | `userPayload` | `Object` | The decoded payload of the access token, or `null`. |
 | `accessToken` | `String` | The raw access token string, or `null`. |
-| `login(credentials, loginUrl?)` | `Function` | Initiates login. Returns `Promise<boolean>`. |
+| `login(credentials, loginUrl?)` | `Function` | Initiates login. Returns `Promise<{ tokenResponse: TokenResponse, apiResponse: any } | null>`. |
 | `logout()` | `Function` | Clears tokens and auth state. |
 | `loading` | `Boolean` | `true` during initial auth state check. |
 | `isRefreshing` | `Boolean` | `true` while refreshing the access token. |
@@ -141,6 +181,146 @@ function LoginComponent() {
 | `verifyToken()` | `Function` | Manually triggers backend token verification. |
 | `getRoles()` / `hasRole(s)` | `Function` | Functions to check user roles. |
 | `getPermissions()` / `hasPermission(s)` | `Function` | Functions to check user permissions. |
+
+#### Examples of `useAuth()` Return Values and Methods
+
+```javascript
+import React, { useState } from 'react';
+import { useAuth } from 'sirbenj-jwt-auth-client';
+
+function AuthComponent() {
+  const {
+    isAuthenticated,
+    userPayload,
+    accessToken,
+    login,
+    logout,
+    loading,
+    isRefreshing,
+    refreshAccessToken,
+    verifyToken,
+    getRoles,
+    hasRole,
+    hasAnyRole,
+    hasAllRoles,
+    getPermissions,
+    hasPermission,
+    hasAnyPermission,
+    hasAllPermissions,
+  } = useAuth();
+
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleLogin = async () => {
+    // The login function now returns an object containing tokenResponse and apiResponse
+    const result = await login({ username, password });
+    if (result) {
+      console.log('Login successful!');
+      console.log('Access Token:', result.tokenResponse.accessToken);
+      console.log('Full API Response:', result.apiResponse);
+      // You can access the tokens directly from result.tokenResponse if needed
+    } else {
+      console.error('Login failed.');
+    }
+  };
+
+  const handleRefresh = async () => {
+    const success = await refreshAccessToken();
+    if (success) {
+      console.log('Token refreshed successfully!');
+    } else {
+      console.error('Token refresh failed.');
+    }
+  };
+
+  const handleVerify = async () => {
+    const verified = await verifyToken();
+    if (verified) {
+      console.log('Token verified by backend!');
+    } else {
+      console.error('Token verification failed by backend!');
+    }
+  };
+
+  if (loading) {
+    return <div>Loading authentication state...</div>;
+  }
+
+  return (
+    <div>
+      {isAuthenticated ? (
+        <div>
+          <p>Welcome, {userPayload?.name || 'User'}!</p>
+          <p>Access Token: {accessToken ? accessToken.substring(0, 20) + '...' : 'N/A'}</p>
+          <p>Roles: {getRoles().join(', ')}</p>
+          <p>Has 'admin' role: {hasRole('admin') ? 'Yes' : 'No'}</p>
+          <p>Has 'editor' or 'viewer' role: {hasAnyRole(['editor', 'viewer']) ? 'Yes' : 'No'}</p>
+          <p>Has 'admin' and 'user' roles: {hasAllRoles(['admin', 'user']) ? 'Yes' : 'No'}</p>
+          <p>Permissions: {getPermissions().join(', ')}</p>
+          <p>Has 'read' permission: {hasPermission('read') ? 'Yes' : 'No'}</p>
+          <button onClick={handleRefresh} disabled={isRefreshing}>
+            {isRefreshing ? 'Refreshing...' : 'Refresh Token'}
+          </button>
+          <button onClick={handleVerify}>Verify Token</button>
+          <button onClick={logout}>Logout</button>
+        </div>
+      ) : (
+        <div>
+          <p>Not authenticated.</p>
+          <input
+            type="text"
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button onClick={handleLogin}>Login</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default AuthComponent;
+```
+
+#### Roles and Permissions in JWT Payload
+
+The roles and permissions are extracted directly from the JWT payload. There isn't a separate API call for them. The library expects the JWT payload to
+  contain claims (keys) that hold arrays of roles and permissions.
+
+
+  By default, the library looks for:
+   * `roles` for roles
+   * `permissions` for permissions
+
+  You can configure these claim names using `rolesClaim` and `permissionsClaim` in the `JwtAuthClientOptions`.
+
+  **Example JWT Payload:**
+
+```json
+{
+  "sub": "1234567890",
+  "name": "John Doe",
+  "iat": 1516239022,
+  "exp": 1516242622,
+  "roles": ["admin", "editor"],
+  "permissions": ["user:read", "user:write", "product:read"]
+}
+```
+
+
+  In this example:
+   * `getRoles()` would return `["admin", "editor"]`
+   * `hasRole("admin")` would return `true`
+   * `getPermissions()` would return `["user:read", "user:write", "product:read"]`
+   * `hasPermission("user:write")` would return `true`
 
 --- 
 
