@@ -18,12 +18,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sirbenj/sirbenj-jwt-auth-client.git"
+    "url": "https://github.com/kupzsensei/sirbenj-jwt-auth-client.git"
   },
   "bugs": {
-    "url": "https://github.com/sirbenj/sirbenj-jwt-auth-client/issues"
+    "url": "https://github.com/kupzsensei/sirbenj-jwt-auth-client/issues"
   },
-  "homepage": "https://github.com/sirbenj/sirbenj-jwt-auth-client#readme",
+  "homepage": "https://github.com/kupzsensei/sirbenj-jwt-auth-client#readme",
   "devDependencies": {
     "@babel/core": "^7.18.0",
     "@babel/preset-env": "^7.18.0",
