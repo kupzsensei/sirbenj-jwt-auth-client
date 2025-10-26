@@ -1,11 +1,48 @@
-import { JwtAuthClientOptions, LoginCredentials, JwtPayload, TokenResponse } from './types';
+import { JwtAuthClientOptions, LoginCredentials, JwtPayload, TokenResponse, StorageLike } from './types';
+
+function isBrowser(): boolean {
+    return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+function base64UrlDecode(input: string): string {
+    const base64 = input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '=');
+    if (typeof atob === 'function') {
+        return atob(base64);
+    }
+    // @ts-ignore - Buffer is available in Node
+    if (typeof Buffer !== 'undefined') {
+        // @ts-ignore
+        return Buffer.from(base64, 'base64').toString('binary');
+    }
+    throw new Error('No base64 decoder available in this environment.');
+}
+
+function parseJwtPayload(token: string): JwtPayload {
+    const parts = token.split('.');
+    if (parts.length !== 3) throw new Error('Invalid JWT');
+    const payloadJson = base64UrlDecode(parts[1]);
+    return JSON.parse(payloadJson);
+}
+
+const createMemoryStorage = (): StorageLike => {
+    const store: Record<string, string> = {};
+    return {
+        getItem: (k: string) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+        setItem: (k: string, v: string) => {
+            store[k] = String(v);
+        },
+        removeItem: (k: string) => {
+            delete store[k];
+        },
+    };
+};
 
 /**
  * @class JwtAuthClient
  * @description A client for handling JWT authentication.
  */
 export class JwtAuthClient {
-    private storage: Storage;
+    private storage: StorageLike;
     private accessTokenKey: string;
     private refreshTokenKey: string;
     private rolesClaim: string;
@@ -16,13 +53,18 @@ export class JwtAuthClient {
     private loginApiConfig?: JwtAuthClientOptions['loginApiConfig'];
     private refreshApiConfig?: JwtAuthClientOptions['refreshApiConfig'];
     private verifyApiConfig?: JwtAuthClientOptions['verifyApiConfig'];
+    private autoRefresh: boolean;
+    private refreshLeewaySeconds: number;
+    private clockSkewSeconds: number;
+    private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    private refreshInFlight: Promise<boolean> | null = null;
 
     /**
      * @constructor
      * @param {JwtAuthClientOptions} [options] - The options for the client.
      */
     constructor(options: JwtAuthClientOptions = {}) {
-        this.storage = options.storage || window.localStorage;
+        this.storage = options.storage || (isBrowser() ? window.localStorage : createMemoryStorage());
         this.accessTokenKey = options.accessTokenKey || 'jwt_access_token';
         this.refreshTokenKey = options.refreshTokenKey || 'jwt_refresh_token';
         this.rolesClaim = options.rolesClaim || 'roles';
@@ -33,6 +75,9 @@ export class JwtAuthClient {
         this.loginApiConfig = options.loginApiConfig;
         this.refreshApiConfig = options.refreshApiConfig;
         this.verifyApiConfig = options.verifyApiConfig;
+        this.autoRefresh = options.autoRefresh ?? false;
+        this.refreshLeewaySeconds = Math.max(0, options.refreshLeewaySeconds ?? 30);
+        this.clockSkewSeconds = Math.max(0, options.clockSkewSeconds ?? 0);
     }
 
     /**
@@ -48,6 +93,9 @@ export class JwtAuthClient {
         this.storage.setItem(this.accessTokenKey, accessToken);
         if (refreshToken) {
             this.storage.setItem(this.refreshTokenKey, refreshToken);
+        }
+        if (this.autoRefresh) {
+            this.scheduleRefresh();
         }
     }
 
@@ -75,14 +123,23 @@ export class JwtAuthClient {
                 // For now, we'll just return the tokenData as the apiResponse.
                 rawResponseData = tokenData;
             } else if (finalLoginUrl) {
-                const response = await fetch(finalLoginUrl, {
+                let url = finalLoginUrl;
+                let init: RequestInit = {
                     method: this.loginApiConfig?.method || 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         ...this.loginApiConfig?.headers,
                     },
                     body: JSON.stringify(credentials),
-                });
+                };
+                if (this.loginApiConfig?.requestBuilder) {
+                    const built = this.loginApiConfig.requestBuilder({ credentials });
+                    if (built?.url) url = built.url;
+                    if (built?.init) {
+                        init = { ...init, ...built.init, headers: { ...(init.headers || {}), ...(built.init.headers || {}) } };
+                    }
+                }
+                const response = await fetch(url, init);
 
                 if (!response.ok) {
                     throw new Error(`Login failed with status: ${response.status}`);
@@ -133,16 +190,30 @@ export class JwtAuthClient {
             }
         } else if (this.verifyApiConfig) {
             try {
-                const response = await fetch(this.verifyApiConfig.url, {
+                let url = this.verifyApiConfig.url;
+                let init: RequestInit = {
                     method: this.verifyApiConfig.method || 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         ...this.verifyApiConfig.headers,
                     },
-                });
+                };
+                if (this.verifyApiConfig.requestBuilder) {
+                    const built = this.verifyApiConfig.requestBuilder({ accessToken });
+                    if (built?.url) url = built.url;
+                    if (built?.init) {
+                        init = { ...init, ...built.init, headers: { ...(init.headers || {}), ...(built.init.headers || {}) } };
+                    }
+                }
+                const response = await fetch(url, init);
 
-                const rawResponseData = await response.json();
-                const isValid = this.getDeepValue(rawResponseData, this.verifyApiConfig.responseMapping?.isValid);
+                let isValid = false;
+                try {
+                    const rawResponseData = await response.json();
+                    isValid = Boolean(this.getDeepValue(rawResponseData, this.verifyApiConfig.responseMapping?.isValid));
+                } catch {
+                    isValid = response.ok;
+                }
 
                 if (!isValid) {
                     console.warn('Backend verification failed for access token.');
@@ -248,6 +319,10 @@ export class JwtAuthClient {
     public logout(): void {
         this.storage.removeItem(this.accessTokenKey);
         this.storage.removeItem(this.refreshTokenKey);
+        if (this.refreshTimer) {
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = null;
+        }
     }
 
     /**
@@ -267,6 +342,14 @@ export class JwtAuthClient {
     }
 
     /**
+     * Returns an Authorization header if an access token exists.
+     */
+    public getAuthorizationHeader(): Record<string, string> {
+        const token = this.getAccessToken();
+        return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
+    /**
      * Decodes the access token payload.
      * @returns {object|null} The decoded payload object or null if token is invalid/missing.
      */
@@ -275,9 +358,7 @@ export class JwtAuthClient {
         if (!token) return null;
 
         try {
-            const payloadBase64 = token.split('.')[1];
-            const decodedJson = atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'));
-            return JSON.parse(decodedJson);
+            return parseJwtPayload(token);
         } catch (error) {
             console.error('Failed to decode JWT payload:', error);
             return null;
@@ -294,7 +375,7 @@ export class JwtAuthClient {
             return true;
         }
         const nowInSeconds = Math.floor(Date.now() / 1000);
-        return nowInSeconds > payload.exp;
+        return nowInSeconds >= (payload.exp - this.clockSkewSeconds);
     }
 
     /**
@@ -310,58 +391,93 @@ export class JwtAuthClient {
      * @returns {Promise<boolean>} True if refresh was successful, false otherwise.
      */
     public async refreshAccessToken(): Promise<boolean> {
+        if (this.refreshInFlight) {
+            return this.refreshInFlight;
+        }
         const refreshToken = this.getRefreshToken();
         if (!refreshToken) {
             console.log('No refresh token available.');
             return false;
         }
 
-        if (this.onRefresh) {
-            try {
-                const { newAccessToken, newRefreshToken } = await this.onRefresh(refreshToken);
-                if (!newAccessToken) {
-                    throw new Error("Refresh call did not return a new access token.");
+        const run = async (): Promise<boolean> => {
+            if (this.onRefresh) {
+                try {
+                    const { newAccessToken, newRefreshToken } = await this.onRefresh(refreshToken);
+                    if (!newAccessToken) {
+                        throw new Error("Refresh call did not return a new access token.");
+                    }
+                    this.setTokens(newAccessToken, newRefreshToken);
+                    return true;
+                } catch (error: any) {
+                    console.error('Failed to refresh token:', error);
+                    this.logout();
+                    return false;
                 }
-                this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
-                return true;
-            } catch (error: any) {
-                console.error('Failed to refresh token:', error);
-                this.logout();
+            } else if (this.refreshApiConfig) {
+                try {
+                    let url = this.refreshApiConfig.url;
+                    let init: RequestInit = {
+                        method: this.refreshApiConfig.method || 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...this.refreshApiConfig.headers,
+                        },
+                        body: JSON.stringify({ refreshToken }),
+                    };
+                    if (this.refreshApiConfig.requestBuilder) {
+                        const built = this.refreshApiConfig.requestBuilder({ refreshToken });
+                        if (built?.url) url = built.url;
+                        if (built?.init) {
+                            init = { ...init, ...built.init, headers: { ...(init.headers || {}), ...(built.init.headers || {}) } };
+                        }
+                    }
+                    const response = await fetch(url, init);
+                    if (!response.ok) {
+                        throw new Error(`Refresh failed with status: ${response.status}`);
+                    }
+                    const responseData = await response.json();
+                    const newAccessToken = this.getDeepValue(responseData, this.refreshApiConfig.responseMapping?.newAccessToken);
+                    const newRefreshToken = this.getDeepValue(responseData, this.refreshApiConfig.responseMapping?.newRefreshToken);
+                    if (!newAccessToken) {
+                        throw new Error("Refresh call did not return a new access token.");
+                    }
+                    this.setTokens(newAccessToken, newRefreshToken);
+                    return true;
+                } catch (error) {
+                    console.error('Failed to refresh token:', error);
+                    this.logout();
+                    return false;
+                }
+            } else {
+                console.error('onRefresh function or refreshApiConfig not configured. Cannot refresh token.');
                 return false;
             }
-        } else if (this.refreshApiConfig) {
-            try {
-                const response = await fetch(this.refreshApiConfig.url, {
-                    method: this.refreshApiConfig.method || 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...this.refreshApiConfig.headers,
-                    },
-                    body: JSON.stringify({ refreshToken }),
-                });
+        };
 
-                if (!response.ok) {
-                    throw new Error(`Refresh failed with status: ${response.status}`);
-                }
-
-                const responseData = await response.json();
-                const newAccessToken = this.getDeepValue(responseData, this.refreshApiConfig.responseMapping?.newAccessToken);
-                const newRefreshToken = this.getDeepValue(responseData, this.refreshApiConfig.responseMapping?.newRefreshToken);
-
-                if (!newAccessToken) {
-                    throw new Error("Refresh call did not return a new access token.");
-                }
-                this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
-                return true;
-            } catch (error) {
-                console.error('Failed to refresh token:', error);
-                this.logout();
-                return false;
+        this.refreshInFlight = run().finally(() => {
+            this.refreshInFlight = null;
+            if (this.autoRefresh) {
+                this.scheduleRefresh();
             }
-        } else {
-            console.error('onRefresh function or refreshApiConfig not configured. Cannot refresh token.');
-            return false;
+        });
+        return this.refreshInFlight;
+    }
+
+    private scheduleRefresh(): void {
+        if (!this.autoRefresh) return;
+        if (this.refreshTimer) {
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = null;
         }
+        const payload = this.getPayload();
+        if (!payload || typeof payload.exp !== 'number') return;
+        const now = Math.floor(Date.now() / 1000);
+        const dueInSec = Math.max(0, payload.exp - now - this.refreshLeewaySeconds);
+        const dueInMs = Math.max(0, dueInSec * 1000);
+        this.refreshTimer = setTimeout(() => {
+            void this.refreshAccessToken();
+        }, dueInMs);
     }
 
     /**

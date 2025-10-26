@@ -114,9 +114,9 @@ describe('JwtAuthClient', () => {
       const onLogin = jest.fn().mockResolvedValue({ accessToken: createMockJwt({}), refreshToken: createMockJwt({}) });
       const client = new JwtAuthClient({ onLogin });
 
-      const success = await client.login({ username: 'test', password: 'password' });
+      const result = await client.login({ username: 'test', password: 'password' });
 
-      expect(success).toBe(true);
+      expect(result).not.toBeNull();
       expect(onLogin).toHaveBeenCalledWith({ username: 'test', password: 'password' });
       expect(client.getAccessToken()).not.toBeNull();
     });

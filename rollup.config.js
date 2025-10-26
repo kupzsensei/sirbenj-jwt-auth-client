@@ -8,40 +8,30 @@ const packageJson = require('./package.json');
 
 const extensions = ['.js', '.jsx', '.ts', '.tsx'];
 
-export default {
-    input: 'src/index.ts',
+const makeConfig = (input, cjs, esm, umdName) => ({
+    input,
     output: [
-        {
-            file: packageJson.main,
-            format: 'cjs',
-            sourcemap: true,
-        },
-        {
-            file: packageJson.module,
-            format: 'esm',
-            sourcemap: true,
-        },
-        {
+        { file: cjs, format: 'cjs', sourcemap: true },
+        { file: esm, format: 'esm', sourcemap: true },
+        umdName && {
             file: packageJson.browser,
             format: 'umd',
             sourcemap: true,
-            name: 'JwtAuth', // This will be the global variable name for UMD build
-            globals: {
-                react: 'React',
-                'react-dom': 'ReactDOM',
-                'react/jsx-runtime': 'jsxRuntime' // Added to remove warning
-            }
+            name: umdName,
+            globals: { react: 'React', 'react-dom': 'ReactDOM', 'react/jsx-runtime': 'jsxRuntime' }
         },
-    ],
+    ].filter(Boolean),
+    external: ['react', 'react-dom', '@tanstack/react-query'],
     plugins: [
         peerDepsExternal(),
         resolve({ extensions }),
-        babel({ // Moved Babel before commonjs
-            babelHelpers: 'bundled',
-            exclude: 'node_modules/**',
-            extensions,
-        }),
+        babel({ babelHelpers: 'bundled', exclude: 'node_modules/**', extensions }),
         commonjs(),
         typescript(),
     ],
-};
+});
+
+export default [
+    makeConfig('src/index.ts', packageJson.main, packageJson.module, 'JwtAuth'),
+    makeConfig('src/query.ts', 'dist/query.js', 'dist/query.esm.js', null),
+];

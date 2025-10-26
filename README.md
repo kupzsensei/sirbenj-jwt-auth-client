@@ -1,137 +1,56 @@
 # Sirbenj JWT Auth Client
 
-A lightweight, dependency-free JavaScript library for handling JWT authentication on the frontend, now with refresh token support. It's designed to be framework-agnostic and works seamlessly in both vanilla JavaScript/HTML projects and React applications.
+A robust, dependency-free JWT auth toolkit for React and vanilla JS. It’s framework-agnostic at the core, with ergonomic React helpers, permission-aware guards, an auth-aware fetch wrapper, and secure token lifecycle management with auto-refresh.
 
-**Disclaimer**: This library is a *client-side* helper. It assumes the JWT you receive from your server has already been validated. You should never trust the contents of a JWT payload on the client for authorization without re-validating with your backend.
+Important: This is a client-side helper. Always validate and authorize on your backend. JWT signatures are not validated in the client.
 
-## Features
+## Highlights
 
--  **TypeScript Support**: Fully typed for better developer experience.
--  **Framework-Agnostic Core**: Can be used in any JavaScript/TypeScript project.
-- ⚛️ **React Hooks**: Simple `useAuth` hook and `AuthProvider` for easy React integration.
--  **Refresh Token Support**: Automatically refreshes the access token when it expires.
--  **Roles & Permissions Handling**: Easily check user roles and permissions based on JWT claims.
--  **Zero Dependencies**: Keeps your project light.
--  **Flexible Storage**: Defaults to `localStorage`, but can be configured to use `sessionStorage`, cookies, or any other storage mechanism.
-- **Expiration Check**: Easily check if the JWT has expired.
--  **Payload Decoding**: Decode the JWT payload to access claims (e.g., user ID, roles).
--  **Secure**: Does not attempt to validate the JWT signature (which should always be done on the server).
+- TypeScript-first, CJS + ESM + UMD builds with .d.ts
+- Framework-agnostic core `JwtAuthClient`
+- React `AuthProvider` + `useAuth`
+- Permission-aware guards: `RequireAuth`, `RequirePermissions`, `AuthGate`
+- Auto-refresh before expiry + clock skew handling
+- Concurrency-safe refresh, SSR-safe JWT decoding
+- Cross-tab token sync and flexible storage adapters
+- Auth-aware fetch helper with optional refresh-on-401
+- First-class TanStack Query helpers for queries and mutations
 
-## Installation
+## Install
 
 ```bash
 npm install sirbenj-jwt-auth-client
 ```
 
-## Usage
+## Quick Start (React)
 
-This library can be used in both React and vanilla JavaScript projects.
-
-- **For React applications**, see the [Usage in React](#usage-in-react) section below.
-- **For vanilla JavaScript**, see the [Vanilla JS Usage](#vanilla-js-usage) section.
-
-### Configuration
-
-You can configure the storage mechanism and other options by passing a configuration object to either `JwtAuthClient` (for vanilla JS) or `AuthProvider` (for React).
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `storage` | `Object` | `window.localStorage` | Storage mechanism (e.g., `sessionStorage`, `cookieStorageAdapter`). Must implement `getItem`, `setItem`, `removeItem`. |
-| `onLogin` | `Function` | `null` | An async function that handles calling your API's login endpoint. Receives `credentials` and should return `{ accessToken, refreshToken }`. |
-| `onVerify` | `Function` | `null` | An async function that verifies the access token with your backend. Receives `accessToken` and should return `true` if valid, `false` otherwise. |
-| `onRefresh` | `Function` | `null` | An async function that handles calling your API's refresh endpoint. **Required for refresh functionality.** |
-| `accessTokenKey` | `String` | `'jwt_access_token'` | The key used to store the access token. |
-| `refreshTokenKey` | `String` | `'jwt_refresh_token'` | The key used to store the refresh token. |
-| `rolesClaim` | `String` | `'roles'` | The key in the JWT payload where roles are stored. |
-| `permissionsClaim` | `String` | `'permissions'` | The key in the JWT payload where permissions are stored. |
-| `loginApiConfig` | `Object` | `null` | Declarative configuration for the login API endpoint. |
-| `refreshApiConfig` | `Object` | `null` | Declarative configuration for the refresh API endpoint. |
-| `verifyApiConfig` | `Object` | `null` | Declarative configuration for the verify API endpoint. |
-
-#### Declarative API Configuration Details
-
-For `loginApiConfig`, `refreshApiConfig`, and `verifyApiConfig`, you can provide an object with the following structure:
-
-```typescript
-interface ApiConfig {
-  url: string;
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  headers?: Record<string, string>;
-  responseMapping?: {
-    // For loginApiConfig:
-    accessToken?: string; // Path to access token in response (e.g., 'data.token')
-    refreshToken?: string; // Path to refresh token in response
-
-    // For refreshApiConfig:
-    newAccessToken?: string; // Path to new access token in response
-    newRefreshToken?: string; // Path to new refresh token in response
-
-    // For verifyApiConfig:
-    isValid?: string; // Path to boolean indicating validity (e.g., 'status.success')
-  };
-}
-```
-
-**Note:** If both a callback function (`onLogin`, `onRefresh`, `onVerify`) and a declarative API configuration (`loginApiConfig`, `refreshApiConfig`, `verifyApiConfig`) are provided for the same operation, the callback function will take precedence.
-
---- 
-
-## Usage in React
-
-For React applications, the library provides an `AuthProvider` component and a `useAuth` hook for easy integration.
-
-▶️ **[Live React Example](examples/react-example)**: Check out the [React example](./examples/react-example) for a complete, runnable project.
-
-### Step 1: Configure Authentication Logic
-
-Instead of providing `onLogin`, `onRefresh`, and `onVerify` functions, you can use declarative API configurations for common REST API patterns.
-
-```javascript
-// src/authConfig.js
-const authConfig = {
-  loginApiConfig: {
-    url: 'https://your-api.com/auth/login',
-    method: 'POST',
-    // Map your API response to extract tokens
-    responseMapping: {
-      accessToken: 'data.accessToken', // e.g., if your response is { data: { accessToken: '...' } }
-      refreshToken: 'data.refreshToken',
-    },
-  },
-  refreshApiConfig: {
-    url: 'https://your-api.com/auth/refresh',
-    method: 'POST',
-    responseMapping: {
-      newAccessToken: 'token', // e.g., if your response is { token: '...' }
-      newRefreshToken: 'refreshToken',
-    },
-  },
-  verifyApiConfig: {
-    url: 'https://your-api.com/auth/verify',
-    method: 'GET',
-    responseMapping: {
-      isValid: 'status.success', // e.g., if your response is { status: { success: true } }
-    },
-  },
-  // ... other configurations like storage, accessTokenKey, etc.
-};
-
-export default authConfig;
-```
-
-### Step 2: Wrap your app with `AuthProvider`
-
-Import your `authConfig` and pass it to the `AuthProvider`.
-
-```javascript
-// src/index.js
+```tsx
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AuthProvider } from 'sirbenj-jwt-auth-client';
-import authConfig from './authConfig'; // Import your declarative config
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const authConfig = {
+  autoRefresh: true,
+  refreshLeewaySeconds: 60,
+  loginApiConfig: {
+    url: 'https://api.example.com/auth/login',
+    method: 'POST',
+    responseMapping: { accessToken: 'data.accessToken', refreshToken: 'data.refreshToken' },
+  },
+  refreshApiConfig: {
+    url: 'https://api.example.com/auth/refresh',
+    method: 'POST',
+    responseMapping: { newAccessToken: 'data.accessToken', newRefreshToken: 'data.refreshToken' },
+  },
+  verifyApiConfig: {
+    url: 'https://api.example.com/auth/verify',
+    method: 'GET',
+    responseMapping: { isValid: 'ok' },
+  },
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(
   <React.StrictMode>
     <AuthProvider config={authConfig}>
@@ -141,292 +60,433 @@ root.render(
 );
 ```
 
-### Step 3: Use the `useAuth` hook
+Use in a component:
 
-```javascript
-// src/components/LoginComponent.js
-import React from 'react';
-import { useAuth } from 'sirbenj-jwt-auth-client';
+```tsx
+import { useAuth, RequireAuth, RequirePermissions } from 'sirbenj-jwt-auth-client';
+import { Navigate } from 'react-router-dom';
 
-function LoginComponent() {
-  const { isAuthenticated, login, logout, userPayload } = useAuth();
-
-  if (isAuthenticated) {
-    return (
-      <div>
-        <p>Welcome, {userPayload.name}!</p>
-        <button onClick={logout}>Logout</button>
-      </div>
-    );
-  }
-
-  return <button onClick={() => login({ username: 'user', password: 'pass' })}>Login</button>;
-}
-```
-
-### `useAuth()` Return Values
-
-Here's a detailed breakdown of the values and functions returned by the `useAuth()` hook, along with examples:
-
-| Key | Type | Description |
-| --- | --- | --- |
-| `isAuthenticated` | `Boolean` | `true` if a valid, non-expired, and verified token exists. |
-| `userPayload` | `Object` | The decoded payload of the access token, or `null`. |
-| `accessToken` | `String` | The raw access token string, or `null`. |
-| `login(credentials, loginUrl?)` | `Function` | Initiates login. Returns `Promise<{ tokenResponse: TokenResponse, apiResponse: any } | null>`. |
-| `logout()` | `Function` | Clears tokens and auth state. |
-| `loading` | `Boolean` | `true` during initial auth state check. |
-| `isRefreshing` | `Boolean` | `true` while refreshing the access token. |
-| `refreshAccessToken()` | `Function` | Manually triggers a token refresh. |
-| `verifyToken()` | `Function` | Manually triggers backend token verification. |
-| `getRoles()` / `hasRole(s)` | `Function` | Functions to check user roles. |
-| `getPermissions()` / `hasPermission(s)` | `Function` | Functions to check user permissions. |
-
-#### Examples of `useAuth()` Return Values and Methods
-
-```javascript
-import React, { useState } from 'react';
-import { useAuth } from 'sirbenj-jwt-auth-client';
-
-function AuthComponent() {
-  const {
-    isAuthenticated,
-    userPayload,
-    accessToken,
-    login,
-    logout,
-    loading,
-    isRefreshing,
-    refreshAccessToken,
-    verifyToken,
-    getRoles,
-    hasRole,
-    hasAnyRole,
-    hasAllRoles,
-    getPermissions,
-    hasPermission,
-    hasAnyPermission,
-    hasAllPermissions,
-  } = useAuth();
-
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-
-  const handleLogin = async () => {
-    // The login function now returns an object containing tokenResponse and apiResponse
-    const result = await login({ username, password });
-    if (result) {
-      console.log('Login successful!');
-      console.log('Access Token:', result.tokenResponse.accessToken);
-      console.log('Full API Response:', result.apiResponse);
-      // You can access the tokens directly from result.tokenResponse if needed
-    } else {
-      console.error('Login failed.');
-    }
-  };
-
-  const handleRefresh = async () => {
-    const success = await refreshAccessToken();
-    if (success) {
-      console.log('Token refreshed successfully!');
-    } else {
-      console.error('Token refresh failed.');
-    }
-  };
-
-  const handleVerify = async () => {
-    const verified = await verifyToken();
-    if (verified) {
-      console.log('Token verified by backend!');
-    } else {
-      console.error('Token verification failed by backend!');
-    }
-  };
-
-  if (loading) {
-    return <div>Loading authentication state...</div>;
-  }
-
+export function Profile() {
+  const { userPayload, logout } = useAuth();
   return (
     <div>
-      {isAuthenticated ? (
-        <div>
-          <p>Welcome, {userPayload?.name || 'User'}!</p>
-          <p>Access Token: {accessToken ? accessToken.substring(0, 20) + '...' : 'N/A'}</p>
-          <p>Roles: {getRoles().join(', ')}</p>
-          <p>Has 'admin' role: {hasRole('admin') ? 'Yes' : 'No'}</p>
-          <p>Has 'editor' or 'viewer' role: {hasAnyRole(['editor', 'viewer']) ? 'Yes' : 'No'}</p>
-          <p>Has 'admin' and 'user' roles: {hasAllRoles(['admin', 'user']) ? 'Yes' : 'No'}</p>
-          <p>Permissions: {getPermissions().join(', ')}</p>
-          <p>Has 'read' permission: {hasPermission('read') ? 'Yes' : 'No'}</p>
-          <button onClick={handleRefresh} disabled={isRefreshing}>
-            {isRefreshing ? 'Refreshing...' : 'Refresh Token'}
-          </button>
-          <button onClick={handleVerify}>Verify Token</button>
-          <button onClick={logout}>Logout</button>
-        </div>
-      ) : (
-        <div>
-          <p>Not authenticated.</p>
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button onClick={handleLogin}>Login</button>
-        </div>
-      )}
+      <h3>Welcome {userPayload?.name}</h3>
+      <button onClick={logout}>Logout</button>
     </div>
   );
 }
 
-export default AuthComponent;
+export function RoutesExample() {
+  return (
+    <RequireAuth fallback={<Navigate to="/login" replace />}> 
+      <RequirePermissions anyOf={["user:read"]} fallback={<Navigate to="/forbidden" replace />}> 
+        <Profile />
+      </RequirePermissions>
+    </RequireAuth>
+  );
+}
 ```
 
-#### Roles and Permissions in JWT Payload
+## Auth-Aware Fetch
 
-The roles and permissions are extracted directly from the JWT payload. There isn't a separate API call for them. The library expects the JWT payload to
-  contain claims (keys) that hold arrays of roles and permissions.
+Option A (React): use the built-in hook
 
+```ts
+import { useAuthFetch } from 'sirbenj-jwt-auth-client';
 
-  By default, the library looks for:
-   * `roles` for roles
-   * `permissions` for permissions
+function useApi() {
+  const authFetch = useAuthFetch({ refreshOn401: true });
+  return {
+    async getMe() {
+      const res = await authFetch('https://api.example.com/me');
+      return res.json();
+    },
+  };
+}
+```
 
-  You can configure these claim names using `rolesClaim` and `permissionsClaim` in the `JwtAuthClientOptions`.
+Option B (Vanilla): bind to a client instance
 
-  **Example JWT Payload:**
+```ts
+import { JwtAuthClient, createAuthFetch } from 'sirbenj-jwt-auth-client';
+
+const client = new JwtAuthClient({ /* ... */ });
+const authFetch = createAuthFetch(client, { refreshOn401: true });
+```
+
+Tip: You can also use `withAuthHeaders(client, init)` to attach headers to axios or other clients.
+
+## TanStack Query Integration
+
+Install TanStack Query in your app:
+
+```bash
+npm i @tanstack/react-query
+```
+
+Use `useAuthQuery` and `useAuthMutation` to standardize API calls with loading/error states and retries:
+
+```tsx
+import { useAuthQuery, useAuthMutation } from 'sirbenj-jwt-auth-client/query';
+
+function UsersList() {
+  const { data, isLoading, error } = useAuthQuery(['users'], {
+    url: 'https://api.example.com/users',
+    method: 'GET',
+    parseAs: 'json',
+  });
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Failed to load</div>;
+  return <pre>{JSON.stringify(data, null, 2)}</pre>;
+}
+
+function CreateUserButton() {
+  const mutation = useAuthMutation((user: { name: string }) => ({
+    url: 'https://api.example.com/users',
+    method: 'POST',
+    body: user,
+    parseAs: 'json',
+  }));
+
+  return (
+    <button onClick={() => mutation.mutate({ name: 'Alice' })} disabled={mutation.isLoading}>
+      {mutation.isLoading ? 'Creating...' : 'Create User'}
+    </button>
+  );
+}
+```
+
+Notes
+- These hooks attach the Authorization header automatically and will attempt a token refresh on 401 before retrying.
+- All standard TanStack Query options are supported via the `options` parameter.
+
+## React Router v6 Example (Guards + Query)
+
+```tsx
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider, RequireAuth, RequirePermissions } from 'sirbenj-jwt-auth-client';
+import { useAuthQuery } from 'sirbenj-jwt-auth-client/query';
+
+const queryClient = new QueryClient();
+
+function Dashboard() {
+  const { data, isLoading } = useAuthQuery(['me'], { url: '/api/me', method: 'GET' });
+  if (isLoading) return <div>Loading...</div>;
+  return <div>Hello {data.name}</div>;
+}
+
+const router = createBrowserRouter([
+  {
+    path: '/dashboard',
+    element: (
+      <RequireAuth fallback={<Navigate to="/login" replace />}> 
+        <RequirePermissions anyOf={["user:read"]} fallback={<Navigate to="/forbidden" replace />}> 
+          <Dashboard />
+        </RequirePermissions>
+      </RequireAuth>
+    ),
+  },
+  { path: '/login', element: <div>Login page</div> },
+  { path: '/forbidden', element: <div>Forbidden</div> },
+  { path: '*', element: <Navigate to="/dashboard" replace /> },
+]);
+
+const authConfig = { /* see Quick Start config above */ };
+
+createRoot(document.getElementById('root')!)
+  .render(
+    <React.StrictMode>
+      <AuthProvider config={authConfig}>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </AuthProvider>
+    </React.StrictMode>
+  );
+```
+
+## Vanilla JS Quick Start
+
+```js
+import { JwtAuthClient } from 'sirbenj-jwt-auth-client';
+
+const client = new JwtAuthClient({
+  loginApiConfig: {
+    url: '/api/login',
+    method: 'POST',
+    responseMapping: { accessToken: 'access', refreshToken: 'refresh' },
+  },
+  refreshApiConfig: {
+    url: '/api/refresh',
+    method: 'POST',
+    responseMapping: { newAccessToken: 'access', newRefreshToken: 'refresh' },
+  },
+});
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const result = await client.login({ username: 'u', password: 'p' });
+  if (result) alert('Logged in');
+});
+
+async function fetchMe() {
+  const res = await fetch('/api/me', { headers: client.getAuthorizationHeader() });
+  if (res.status === 401) {
+    const ok = await client.refreshAccessToken();
+    if (!ok) return null;
+    return fetch('/api/me', { headers: client.getAuthorizationHeader() }).then(r => r.json());
+  }
+  return res.json();
+}
+```
+
+## Axios Integration
+
+```ts
+import axios from 'axios';
+import { JwtAuthClient } from 'sirbenj-jwt-auth-client';
+
+const client = new JwtAuthClient({ /* ... */ });
+const api = axios.create({ baseURL: '/api' });
+
+api.interceptors.request.use((config) => {
+  config.headers = { ...(config.headers || {}), ...client.getAuthorizationHeader() };
+  return config;
+});
+
+api.interceptors.response.use(
+  (r) => r,
+  async (error) => {
+    if (error.response?.status === 401) {
+      const ok = await client.refreshAccessToken();
+      if (ok) return api.request(error.config);
+    }
+    return Promise.reject(error);
+  }
+);
+```
+
+## Cookie/HttpOnly Refresh Flow
+
+Recommended: store refresh token as HttpOnly cookie, and return access token in the refresh response. Example using `requestBuilder` to send credentials:
+
+```ts
+const authConfig = {
+  refreshApiConfig: {
+    url: '/auth/refresh',
+    method: 'POST',
+    headers: {},
+    requestBuilder: () => ({ init: { credentials: 'include' } }),
+    responseMapping: { newAccessToken: 'accessToken' },
+  },
+};
+```
+
+## Custom Request Builders
+
+Control request shape (URL, headers, body) beyond defaults:
+
+```ts
+const authConfig = {
+  loginApiConfig: {
+    url: '/auth/login',
+    requestBuilder: ({ credentials }) => ({
+      init: {
+        headers: { 'X-Client': 'web' },
+        body: JSON.stringify({ user: credentials.username, pass: credentials.password }),
+      },
+    }),
+    responseMapping: { accessToken: 'jwt', refreshToken: 'refresh' },
+  },
+  verifyApiConfig: {
+    url: '/auth/verify',
+    method: 'GET',
+    requestBuilder: ({ accessToken }) => ({ url: `/auth/verify?token=${accessToken}` }),
+    responseMapping: { isValid: 'ok' },
+  },
+};
+```
+
+## Auto-Refresh and Skew
+
+```ts
+const authConfig = {
+  autoRefresh: true,             // schedule refresh automatically
+  refreshLeewaySeconds: 60,      // refresh 60s before expiry
+  clockSkewSeconds: 5,           // tolerate 5s skew
+};
+```
+
+## SSR Usage (Next.js)
+
+```tsx
+// pages/_app.tsx
+import type { AppProps } from 'next/app';
+import { AuthProvider, memoryStorage } from 'sirbenj-jwt-auth-client';
+
+const authConfig = {
+  storage: typeof window === 'undefined' ? memoryStorage() : undefined,
+  // ...other options
+};
+
+export default function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <AuthProvider config={authConfig}>
+      <Component {...pageProps} />
+    </AuthProvider>
+  );
+}
+```
+
+## Roles & Permissions Helpers
+
+```ts
+const { getRoles, hasRole, hasAnyRole, hasAllRoles, getPermissions, hasPermission } = useAuth();
+hasRole('admin');
+hasAnyRole(['editor', 'viewer']);
+hasAllRoles(['admin', 'user']);
+hasPermission('user:read');
+```
+
+Guarding UI by permission:
+
+```tsx
+import { RequirePermissions } from 'sirbenj-jwt-auth-client';
+
+<RequirePermissions anyOf={["user:read"]} fallback={<span>No access</span>}>
+  <SecretPanel />
+</RequirePermissions>
+```
+
+## Manual Verify and Refresh
+
+```ts
+const { verifyToken, refreshAccessToken } = useAuth();
+await verifyToken();
+await refreshAccessToken();
+```
+
+## Storage Adapters
+
+```ts
+import { memoryStorage, safeWebStorage } from 'sirbenj-jwt-auth-client';
+
+// In-memory only
+const client = new JwtAuthClient({ storage: memoryStorage() });
+
+// Safer web storage wrapper
+const saferLocal = safeWebStorage(window.localStorage);
+const client2 = new JwtAuthClient({ storage: saferLocal });
+```
+
+## API
+
+- `JwtAuthClient(options)` Core client usable anywhere.
+  - `login(credentials, loginUrl?) => Promise<{ tokenResponse, apiResponse } | null>`
+  - `logout()`
+  - `getAccessToken()` / `getRefreshToken()` / `getAuthorizationHeader()`
+  - `getPayload()` / `isAccessTokenExpired()` / `isAuthenticated()`
+  - `refreshAccessToken()` / `verifyToken()`
+  - Role/permission helpers: `getRoles`, `hasRole`, `hasAnyRole`, `hasAllRoles`, `getPermissions`, `hasPermission`, `hasAnyPermission`, `hasAllPermissions`
+
+- React
+  - `AuthProvider({ config, children })`
+  - `useAuth()` returns:
+    - `isAuthenticated`, `userPayload`, `accessToken`, `loading`, `isRefreshing`
+    - `login`, `logout`, `refreshAccessToken`, `verifyToken`, `getAuthorizationHeader`
+    - role/permission helpers
+  - Guards: `AuthGate`, `RequireAuth`, `RequirePermissions`
+
+- Fetch helpers
+  - `createAuthFetch(client, { refreshOn401 = true, onUnauthorized })`
+  - `withAuthHeaders(client, init)`
+
+## Configuration
+
+```ts
+type JwtAuthClientOptions = {
+  storage?: { getItem(k): string|null; setItem(k,v: string): void; removeItem(k): void };
+  accessTokenKey?: string; // default 'jwt_access_token'
+  refreshTokenKey?: string; // default 'jwt_refresh_token'
+  rolesClaim?: string; // default 'roles'
+  permissionsClaim?: string; // default 'permissions'
+  autoRefresh?: boolean; // default false
+  refreshLeewaySeconds?: number; // default 30
+  clockSkewSeconds?: number; // default 0
+  enableStorageSync?: boolean; // cross-tab sync handled by provider
+
+  onLogin?: (credentials) => Promise<{ accessToken: string; refreshToken?: string }>; // takes precedence
+  onRefresh?: (refreshToken: string) => Promise<{ newAccessToken: string; newRefreshToken?: string }>;
+  onVerify?: (accessToken: string) => Promise<boolean>;
+
+  loginApiConfig?: {
+    url: string; method?: 'GET'|'POST'|'PUT'|'DELETE'; headers?: Record<string,string>;
+    responseMapping?: { accessToken?: string; refreshToken?: string };
+    requestBuilder?: (ctx: { credentials: any }) => { url?: string; init?: RequestInit };
+  };
+  refreshApiConfig?: {
+    url: string; method?: 'GET'|'POST'|'PUT'|'DELETE'; headers?: Record<string,string>;
+    responseMapping?: { newAccessToken?: string; newRefreshToken?: string };
+    requestBuilder?: (ctx: { refreshToken: string|null }) => { url?: string; init?: RequestInit };
+  };
+  verifyApiConfig?: {
+    url: string; method?: 'GET'|'POST'|'PUT'|'DELETE'; headers?: Record<string,string>;
+    responseMapping?: { isValid?: string };
+    requestBuilder?: (ctx: { accessToken: string|null }) => { url?: string; init?: RequestInit };
+  };
+}
+```
+
+Notes
+- If both callback and declarative config are provided, the callback is used.
+- `autoRefresh` schedules a refresh a few seconds before expiry.
+- `clockSkewSeconds` tolerates small time differences with the issuer.
+
+## Roles and Permissions
+
+Claims are read from the access token payload (defaults: `roles`, `permissions`). Configure via `rolesClaim` and `permissionsClaim` as needed.
 
 ```json
 {
-  "sub": "1234567890",
+  "sub": "123",
   "name": "John Doe",
-  "iat": 1516239022,
-  "exp": 1516242622,
+  "exp": 1716242622,
   "roles": ["admin", "editor"],
-  "permissions": ["user:read", "user:write", "product:read"]
+  "permissions": ["user:read", "user:write"]
 }
 ```
 
+Use guards in React:
 
-  In this example:
-   * `getRoles()` would return `["admin", "editor"]`
-   * `hasRole("admin")` would return `true`
-   * `getPermissions()` would return `["user:read", "user:write", "product:read"]`
-   * `hasPermission("user:write")` would return `true`
-
---- 
-
-## Vanilla JS Usage
-
-The core `JwtAuthClient` class can be used in any JavaScript project.
-
-### Example
-
-```javascript
-import { JwtAuthClient } from 'sirbenj-jwt-auth-client';
-
-// 1. Configure your auth logic
-const onRefresh = async (refreshToken) => {
-  // ... call your refresh API
-  return { newAccessToken: '...' };
-};
-
-// 2. Create a client instance
-const authClient = new JwtAuthClient({ onRefresh });
-
-// 3. Use the client
-document.getElementById('login-btn').addEventListener('click', async () => {
-  const success = await authClient.login({ username: 'user', password: 'pass' }, 'https://api.com/login');
-  if (success) {
-    console.log('Logged in!');
-    updateUI();
-  }
-});
-
-function updateUI() {
-  if (authClient.isAuthenticated()) {
-    const payload = authClient.getPayload();
-    document.getElementById('user-info').textContent = `Welcome, ${payload.name}`;
-  } else {
-    document.getElementById('user-info').textContent = 'Logged out';
-  }
-}
-
-// Initial UI update
-updateUI();
+```tsx
+<RequireAuth fallback={<Navigate to="/login" replace />}> 
+  <RequirePermissions anyOf={["user:read"]} fallback={<Navigate to="/forbidden" replace />}>
+    <Dashboard />
+  </RequirePermissions>
+</RequireAuth>
 ```
 
-### `JwtAuthClient` Methods
+## Storage and Security
 
-The `JwtAuthClient` instance provides the same methods for role and permission checking as the `useAuth` hook, along with methods for direct token and payload access.
+- Default storage is `localStorage` in the browser and an in-memory fallback in SSR/Node.
+- For best security, prefer: refresh token in HttpOnly secure cookie; access token in memory only (do not persist). You can implement a custom storage adapter that stores only the access token in memory.
+- If you must use Web Storage, ensure your app is free of XSS and uses a strict CSP.
 
-- `login(credentials, loginUrl?)`
-- `logout()`
-- `getAccessToken()`
-- `getRefreshToken()`
-- `getPayload()`
-- `isAuthenticated()`
-- `isAccessTokenExpired()`
-- `refreshAccessToken()`
-- `verifyToken()`
-- `getRoles()`
-- `hasRole(role)`
-- `hasAnyRole(roles)`
-- `hasAllRoles(roles)`
-- `getPermissions()`
-- `hasPermission(permission)`
-- `hasAnyPermission(permissions)`
-- `hasAllPermissions(permissions)`
+## SSR Safety
 
---- 
+JWT decoding is SSR-safe (Node environments without `atob` are supported). The client falls back to in-memory storage when the DOM isn’t available.
 
-## Example: Using Cookies with `js-cookie`
+## Cross-Tab Sync
 
-For a robust cookie implementation, use the `js-cookie` library.
+The React provider listens to `storage` events and updates auth state across tabs (when using Web Storage).
 
-#### Step 1: Install `js-cookie`
+## Examples
 
-```bash
-npm install js-cookie
-```
-
-#### Step 2: Create a Storage Adapter and Configure
-
-```javascript
-import { AuthProvider } from 'sirbenj-jwt-auth-client'; // or JwtAuthClient
-import Cookies from 'js-cookie';
-
-// Define the cookie storage adapter
-const cookieStorageAdapter = {
-  getItem: (key) => Cookies.get(key),
-  setItem: (key, value) => Cookies.set(key, value, { expires: 7, secure: true, sameSite: 'strict' }),
-  removeItem: (key) => Cookies.remove(key)
-};
-
-const authConfig = {
-  storage: cookieStorageAdapter,
-  // ... other config
-};
-
-// In React:
-// <AuthProvider config={authConfig}>...</AuthProvider>
-
-// In Vanilla JS:
-// const client = new JwtAuthClient(authConfig);
-```
-
-## Contributing
-
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/sirbenj/sirbenj-jwt-auth-client/issues).
+- React example: `examples/react-example`
+- Add your router fallback using `<Navigate />` or your preferred solution.
 
 ## License
 
-This project is [MIT](./LICENSE) licensed.
+[MIT](./LICENSE)

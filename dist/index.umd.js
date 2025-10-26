@@ -249,6 +249,41 @@
     }
   }
 
+  function isBrowser() {
+    return typeof window !== 'undefined' && typeof document !== 'undefined';
+  }
+  function base64UrlDecode(input) {
+    var base64 = input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '=');
+    if (typeof atob === 'function') {
+      return atob(base64);
+    }
+    // @ts-ignore - Buffer is available in Node
+    if (typeof Buffer !== 'undefined') {
+      // @ts-ignore
+      return Buffer.from(base64, 'base64').toString('binary');
+    }
+    throw new Error('No base64 decoder available in this environment.');
+  }
+  function parseJwtPayload(token) {
+    var parts = token.split('.');
+    if (parts.length !== 3) throw new Error('Invalid JWT');
+    var payloadJson = base64UrlDecode(parts[1]);
+    return JSON.parse(payloadJson);
+  }
+  var createMemoryStorage = function createMemoryStorage() {
+    var store = {};
+    return {
+      getItem: function getItem(k) {
+        return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null;
+      },
+      setItem: function setItem(k, v) {
+        store[k] = String(v);
+      },
+      removeItem: function removeItem(k) {
+        delete store[k];
+      }
+    };
+  };
   /**
    * @class JwtAuthClient
    * @description A client for handling JWT authentication.
@@ -261,7 +296,10 @@
     function JwtAuthClient() {
       var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
       _classCallCheck(this, JwtAuthClient);
-      this.storage = options.storage || window.localStorage;
+      var _a, _b, _c;
+      this.refreshTimer = null;
+      this.refreshInFlight = null;
+      this.storage = options.storage || (isBrowser() ? window.localStorage : createMemoryStorage());
       this.accessTokenKey = options.accessTokenKey || 'jwt_access_token';
       this.refreshTokenKey = options.refreshTokenKey || 'jwt_refresh_token';
       this.rolesClaim = options.rolesClaim || 'roles';
@@ -272,6 +310,9 @@
       this.loginApiConfig = options.loginApiConfig;
       this.refreshApiConfig = options.refreshApiConfig;
       this.verifyApiConfig = options.verifyApiConfig;
+      this.autoRefresh = (_a = options.autoRefresh) !== null && _a !== void 0 ? _a : false;
+      this.refreshLeewaySeconds = Math.max(0, (_b = options.refreshLeewaySeconds) !== null && _b !== void 0 ? _b : 30);
+      this.clockSkewSeconds = Math.max(0, (_c = options.clockSkewSeconds) !== null && _c !== void 0 ? _c : 0);
     }
     /**
      * Saves the tokens to the configured storage.
@@ -289,6 +330,9 @@
         if (refreshToken) {
           this.storage.setItem(this.refreshTokenKey, refreshToken);
         }
+        if (this.autoRefresh) {
+          this.scheduleRefresh();
+        }
       }
       /**
        * Handles the login process by calling the provided onLogin function or a default fetch.
@@ -300,7 +344,7 @@
       key: "login",
       value: (function () {
         var _login = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(credentials, loginUrl) {
-          var _a, _b, _c, _d, _e, _f, _g, finalLoginUrl, tokenData, rawResponseData, response, accessToken, refreshToken, _t;
+          var _a, _b, _c, _d, _e, _f, _g, _h, finalLoginUrl, tokenData, rawResponseData, url, init, built, response, accessToken, refreshToken, _t;
           return _regenerator().w(function (_context) {
             while (1) switch (_context.n) {
               case 0:
@@ -331,14 +375,27 @@
                   _context.n = 8;
                   break;
                 }
-                _context.n = 4;
-                return fetch(finalLoginUrl, {
+                url = finalLoginUrl;
+                init = {
                   method: ((_b = this.loginApiConfig) === null || _b === void 0 ? void 0 : _b.method) || 'POST',
                   headers: _objectSpread2({
                     'Content-Type': 'application/json'
                   }, (_c = this.loginApiConfig) === null || _c === void 0 ? void 0 : _c.headers),
                   body: JSON.stringify(credentials)
-                });
+                };
+                if ((_d = this.loginApiConfig) === null || _d === void 0 ? void 0 : _d.requestBuilder) {
+                  built = this.loginApiConfig.requestBuilder({
+                    credentials: credentials
+                  });
+                  if (built === null || built === void 0 ? void 0 : built.url) url = built.url;
+                  if (built === null || built === void 0 ? void 0 : built.init) {
+                    init = _objectSpread2(_objectSpread2(_objectSpread2({}, init), built.init), {}, {
+                      headers: _objectSpread2(_objectSpread2({}, init.headers || {}), built.init.headers || {})
+                    });
+                  }
+                }
+                _context.n = 4;
+                return fetch(url, init);
               case 4:
                 response = _context.v;
                 if (response.ok) {
@@ -351,8 +408,8 @@
                 return response.json();
               case 6:
                 rawResponseData = _context.v;
-                accessToken = this.getDeepValue(rawResponseData, (_e = (_d = this.loginApiConfig) === null || _d === void 0 ? void 0 : _d.responseMapping) === null || _e === void 0 ? void 0 : _e.accessToken);
-                refreshToken = this.getDeepValue(rawResponseData, (_g = (_f = this.loginApiConfig) === null || _f === void 0 ? void 0 : _f.responseMapping) === null || _g === void 0 ? void 0 : _g.refreshToken);
+                accessToken = this.getDeepValue(rawResponseData, (_f = (_e = this.loginApiConfig) === null || _e === void 0 ? void 0 : _e.responseMapping) === null || _f === void 0 ? void 0 : _f.accessToken);
+                refreshToken = this.getDeepValue(rawResponseData, (_h = (_g = this.loginApiConfig) === null || _g === void 0 ? void 0 : _g.responseMapping) === null || _h === void 0 ? void 0 : _h.refreshToken);
                 if (accessToken) {
                   _context.n = 7;
                   break;
@@ -396,7 +453,7 @@
       key: "verifyToken",
       value: (function () {
         var _verifyToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
-          var _a, accessToken, isValid, response, rawResponseData, _isValid, _t2, _t3;
+          var _a, accessToken, isValid, url, init, built, response, _isValid, rawResponseData, _t2, _t4;
           return _regenerator().w(function (_context2) {
             while (1) switch (_context2.n) {
               case 0:
@@ -429,42 +486,64 @@
                 return _context2.a(2, false);
               case 5:
                 if (!this.verifyApiConfig) {
-                  _context2.n = 10;
+                  _context2.n = 13;
                   break;
                 }
                 _context2.p = 6;
-                _context2.n = 7;
-                return fetch(this.verifyApiConfig.url, {
+                url = this.verifyApiConfig.url;
+                init = {
                   method: this.verifyApiConfig.method || 'POST',
                   headers: _objectSpread2({
                     'Authorization': "Bearer ".concat(accessToken)
                   }, this.verifyApiConfig.headers)
-                });
+                };
+                if (this.verifyApiConfig.requestBuilder) {
+                  built = this.verifyApiConfig.requestBuilder({
+                    accessToken: accessToken
+                  });
+                  if (built === null || built === void 0 ? void 0 : built.url) url = built.url;
+                  if (built === null || built === void 0 ? void 0 : built.init) {
+                    init = _objectSpread2(_objectSpread2(_objectSpread2({}, init), built.init), {}, {
+                      headers: _objectSpread2(_objectSpread2({}, init.headers || {}), built.init.headers || {})
+                    });
+                  }
+                }
+                _context2.n = 7;
+                return fetch(url, init);
               case 7:
                 response = _context2.v;
-                _context2.n = 8;
+                _isValid = false;
+                _context2.p = 8;
+                _context2.n = 9;
                 return response.json();
-              case 8:
+              case 9:
                 rawResponseData = _context2.v;
-                _isValid = this.getDeepValue(rawResponseData, (_a = this.verifyApiConfig.responseMapping) === null || _a === void 0 ? void 0 : _a.isValid);
+                _isValid = Boolean(this.getDeepValue(rawResponseData, (_a = this.verifyApiConfig.responseMapping) === null || _a === void 0 ? void 0 : _a.isValid));
+                _context2.n = 11;
+                break;
+              case 10:
+                _context2.p = 10;
+                _context2.v;
+                _isValid = response.ok;
+              case 11:
                 if (!_isValid) {
                   console.warn('Backend verification failed for access token.');
                   this.logout();
                 }
                 return _context2.a(2, _isValid);
-              case 9:
-                _context2.p = 9;
-                _t3 = _context2.v;
-                console.error('Error during token verification:', _t3);
+              case 12:
+                _context2.p = 12;
+                _t4 = _context2.v;
+                console.error('Error during token verification:', _t4);
                 this.logout();
                 return _context2.a(2, false);
-              case 10:
+              case 13:
                 console.warn('onVerify function or verifyApiConfig not configured. Assuming token is valid based on local expiration.');
                 return _context2.a(2, !this.isAccessTokenExpired());
-              case 11:
+              case 14:
                 return _context2.a(2);
             }
-          }, _callee2, this, [[6, 9], [2, 4]]);
+          }, _callee2, this, [[8, 10], [6, 12], [2, 4]]);
         }));
         function verifyToken() {
           return _verifyToken.apply(this, arguments);
@@ -578,6 +657,10 @@
       value: function logout() {
         this.storage.removeItem(this.accessTokenKey);
         this.storage.removeItem(this.refreshTokenKey);
+        if (this.refreshTimer) {
+          clearTimeout(this.refreshTimer);
+          this.refreshTimer = null;
+        }
       }
       /**
        * Retrieves the raw access token from storage.
@@ -598,6 +681,17 @@
         return this.storage.getItem(this.refreshTokenKey);
       }
       /**
+       * Returns an Authorization header if an access token exists.
+       */
+    }, {
+      key: "getAuthorizationHeader",
+      value: function getAuthorizationHeader() {
+        var token = this.getAccessToken();
+        return token ? {
+          Authorization: "Bearer ".concat(token)
+        } : {};
+      }
+      /**
        * Decodes the access token payload.
        * @returns {object|null} The decoded payload object or null if token is invalid/missing.
        */
@@ -607,9 +701,7 @@
         var token = this.getAccessToken();
         if (!token) return null;
         try {
-          var payloadBase64 = token.split('.')[1];
-          var decodedJson = atob(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'));
-          return JSON.parse(decodedJson);
+          return parseJwtPayload(token);
         } catch (error) {
           console.error('Failed to decode JWT payload:', error);
           return null;
@@ -627,7 +719,7 @@
           return true;
         }
         var nowInSeconds = Math.floor(Date.now() / 1000);
-        return nowInSeconds > payload.exp;
+        return nowInSeconds >= payload.exp - this.clockSkewSeconds;
       }
       /**
        * Checks if a valid, non-expired access token exists.
@@ -645,108 +737,165 @@
     }, {
       key: "refreshAccessToken",
       value: (function () {
-        var _refreshAccessToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3() {
-          var _a, _b, refreshToken, _yield$this$onRefresh, newAccessToken, newRefreshToken, response, responseData, _newAccessToken, _newRefreshToken, _t4, _t5;
-          return _regenerator().w(function (_context3) {
-            while (1) switch (_context3.n) {
+        var _refreshAccessToken = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4() {
+          var _this = this;
+          var refreshToken, run;
+          return _regenerator().w(function (_context4) {
+            while (1) switch (_context4.n) {
               case 0:
+                if (!this.refreshInFlight) {
+                  _context4.n = 1;
+                  break;
+                }
+                return _context4.a(2, this.refreshInFlight);
+              case 1:
                 refreshToken = this.getRefreshToken();
                 if (refreshToken) {
-                  _context3.n = 1;
+                  _context4.n = 2;
                   break;
                 }
                 console.log('No refresh token available.');
-                return _context3.a(2, false);
-              case 1:
-                if (!this.onRefresh) {
-                  _context3.n = 6;
-                  break;
-                }
-                _context3.p = 2;
-                _context3.n = 3;
-                return this.onRefresh(refreshToken);
-              case 3:
-                _yield$this$onRefresh = _context3.v;
-                newAccessToken = _yield$this$onRefresh.newAccessToken;
-                newRefreshToken = _yield$this$onRefresh.newRefreshToken;
-                if (newAccessToken) {
-                  _context3.n = 4;
-                  break;
-                }
-                throw new Error("Refresh call did not return a new access token.");
-              case 4:
-                this.setTokens(newAccessToken, newRefreshToken); // Store new tokens
-                return _context3.a(2, true);
-              case 5:
-                _context3.p = 5;
-                _t4 = _context3.v;
-                console.error('Failed to refresh token:', _t4);
-                this.logout();
-                return _context3.a(2, false);
-              case 6:
-                if (!this.refreshApiConfig) {
-                  _context3.n = 13;
-                  break;
-                }
-                _context3.p = 7;
-                _context3.n = 8;
-                return fetch(this.refreshApiConfig.url, {
-                  method: this.refreshApiConfig.method || 'POST',
-                  headers: _objectSpread2({
-                    'Content-Type': 'application/json'
-                  }, this.refreshApiConfig.headers),
-                  body: JSON.stringify({
-                    refreshToken: refreshToken
-                  })
+                return _context4.a(2, false);
+              case 2:
+                run = /*#__PURE__*/function () {
+                  var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3() {
+                    var _a, _b, _yield$_this$onRefres, newAccessToken, newRefreshToken, url, init, built, response, responseData, _newAccessToken, _newRefreshToken, _t5, _t6;
+                    return _regenerator().w(function (_context3) {
+                      while (1) switch (_context3.n) {
+                        case 0:
+                          if (!_this.onRefresh) {
+                            _context3.n = 5;
+                            break;
+                          }
+                          _context3.p = 1;
+                          _context3.n = 2;
+                          return _this.onRefresh(refreshToken);
+                        case 2:
+                          _yield$_this$onRefres = _context3.v;
+                          newAccessToken = _yield$_this$onRefres.newAccessToken;
+                          newRefreshToken = _yield$_this$onRefres.newRefreshToken;
+                          if (newAccessToken) {
+                            _context3.n = 3;
+                            break;
+                          }
+                          throw new Error("Refresh call did not return a new access token.");
+                        case 3:
+                          _this.setTokens(newAccessToken, newRefreshToken);
+                          return _context3.a(2, true);
+                        case 4:
+                          _context3.p = 4;
+                          _t5 = _context3.v;
+                          console.error('Failed to refresh token:', _t5);
+                          _this.logout();
+                          return _context3.a(2, false);
+                        case 5:
+                          if (!_this.refreshApiConfig) {
+                            _context3.n = 12;
+                            break;
+                          }
+                          _context3.p = 6;
+                          url = _this.refreshApiConfig.url;
+                          init = {
+                            method: _this.refreshApiConfig.method || 'POST',
+                            headers: _objectSpread2({
+                              'Content-Type': 'application/json'
+                            }, _this.refreshApiConfig.headers),
+                            body: JSON.stringify({
+                              refreshToken: refreshToken
+                            })
+                          };
+                          if (_this.refreshApiConfig.requestBuilder) {
+                            built = _this.refreshApiConfig.requestBuilder({
+                              refreshToken: refreshToken
+                            });
+                            if (built === null || built === void 0 ? void 0 : built.url) url = built.url;
+                            if (built === null || built === void 0 ? void 0 : built.init) {
+                              init = _objectSpread2(_objectSpread2(_objectSpread2({}, init), built.init), {}, {
+                                headers: _objectSpread2(_objectSpread2({}, init.headers || {}), built.init.headers || {})
+                              });
+                            }
+                          }
+                          _context3.n = 7;
+                          return fetch(url, init);
+                        case 7:
+                          response = _context3.v;
+                          if (response.ok) {
+                            _context3.n = 8;
+                            break;
+                          }
+                          throw new Error("Refresh failed with status: ".concat(response.status));
+                        case 8:
+                          _context3.n = 9;
+                          return response.json();
+                        case 9:
+                          responseData = _context3.v;
+                          _newAccessToken = _this.getDeepValue(responseData, (_a = _this.refreshApiConfig.responseMapping) === null || _a === void 0 ? void 0 : _a.newAccessToken);
+                          _newRefreshToken = _this.getDeepValue(responseData, (_b = _this.refreshApiConfig.responseMapping) === null || _b === void 0 ? void 0 : _b.newRefreshToken);
+                          if (_newAccessToken) {
+                            _context3.n = 10;
+                            break;
+                          }
+                          throw new Error("Refresh call did not return a new access token.");
+                        case 10:
+                          _this.setTokens(_newAccessToken, _newRefreshToken);
+                          return _context3.a(2, true);
+                        case 11:
+                          _context3.p = 11;
+                          _t6 = _context3.v;
+                          console.error('Failed to refresh token:', _t6);
+                          _this.logout();
+                          return _context3.a(2, false);
+                        case 12:
+                          console.error('onRefresh function or refreshApiConfig not configured. Cannot refresh token.');
+                          return _context3.a(2, false);
+                        case 13:
+                          return _context3.a(2);
+                      }
+                    }, _callee3, null, [[6, 11], [1, 4]]);
+                  }));
+                  return function run() {
+                    return _ref.apply(this, arguments);
+                  };
+                }();
+                this.refreshInFlight = run()["finally"](function () {
+                  _this.refreshInFlight = null;
+                  if (_this.autoRefresh) {
+                    _this.scheduleRefresh();
+                  }
                 });
-              case 8:
-                response = _context3.v;
-                if (response.ok) {
-                  _context3.n = 9;
-                  break;
-                }
-                throw new Error("Refresh failed with status: ".concat(response.status));
-              case 9:
-                _context3.n = 10;
-                return response.json();
-              case 10:
-                responseData = _context3.v;
-                _newAccessToken = this.getDeepValue(responseData, (_a = this.refreshApiConfig.responseMapping) === null || _a === void 0 ? void 0 : _a.newAccessToken);
-                _newRefreshToken = this.getDeepValue(responseData, (_b = this.refreshApiConfig.responseMapping) === null || _b === void 0 ? void 0 : _b.newRefreshToken);
-                if (_newAccessToken) {
-                  _context3.n = 11;
-                  break;
-                }
-                throw new Error("Refresh call did not return a new access token.");
-              case 11:
-                this.setTokens(_newAccessToken, _newRefreshToken); // Store new tokens
-                return _context3.a(2, true);
-              case 12:
-                _context3.p = 12;
-                _t5 = _context3.v;
-                console.error('Failed to refresh token:', _t5);
-                this.logout();
-                return _context3.a(2, false);
-              case 13:
-                console.error('onRefresh function or refreshApiConfig not configured. Cannot refresh token.');
-                return _context3.a(2, false);
-              case 14:
-                return _context3.a(2);
+                return _context4.a(2, this.refreshInFlight);
             }
-          }, _callee3, this, [[7, 12], [2, 5]]);
+          }, _callee4, this);
         }));
         function refreshAccessToken() {
           return _refreshAccessToken.apply(this, arguments);
         }
         return refreshAccessToken;
-      }()
+      }())
+    }, {
+      key: "scheduleRefresh",
+      value: function scheduleRefresh() {
+        var _this2 = this;
+        if (!this.autoRefresh) return;
+        if (this.refreshTimer) {
+          clearTimeout(this.refreshTimer);
+          this.refreshTimer = null;
+        }
+        var payload = this.getPayload();
+        if (!payload || typeof payload.exp !== 'number') return;
+        var now = Math.floor(Date.now() / 1000);
+        var dueInSec = Math.max(0, payload.exp - now - this.refreshLeewaySeconds);
+        var dueInMs = Math.max(0, dueInSec * 1000);
+        this.refreshTimer = setTimeout(function () {
+          void _this2.refreshAccessToken();
+        }, dueInMs);
+      }
       /**
        * Safely extracts a value from an object using a dot-notation path.
        * @param obj The object to extract from.
        * @param path The dot-notation path (e.g., 'data.user.id').
        * @returns The extracted value or undefined if not found.
        */
-      )
     }, {
       key: "getDeepValue",
       value: function getDeepValue(obj, path) {
@@ -835,6 +984,19 @@
         };
       }();
       initializeAuth();
+    }, [authClient]);
+    // Cross-tab sync for storage changes
+    React.useEffect(function () {
+      var handler = function handler() {
+        setAccessToken(authClient.getAccessToken());
+      };
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('storage', handler);
+        return function () {
+          return window.removeEventListener('storage', handler);
+        };
+      }
+      return function () {};
     }, [authClient]);
     var isAuthenticated = React.useMemo(function () {
       return !!accessToken && !authClient.isAccessTokenExpired() && isVerified;
@@ -927,6 +1089,9 @@
         isRefreshing: isRefreshing,
         refreshAccessToken: refreshAccessToken,
         verifyToken: verifyToken,
+        getAuthorizationHeader: function getAuthorizationHeader() {
+          return authClient.getAuthorizationHeader();
+        },
         getRoles: function getRoles() {
           return authClient.getRoles();
         },
@@ -965,9 +1130,225 @@
     return context;
   }
 
+  function AuthGate(_ref) {
+    var children = _ref.children,
+      _ref$loadingFallback = _ref.loadingFallback,
+      loadingFallback = _ref$loadingFallback === void 0 ? null : _ref$loadingFallback;
+    var _useAuth = useAuth(),
+      loading = _useAuth.loading;
+    if (loading) return /*#__PURE__*/React__default["default"].createElement(React__default["default"].Fragment, null, loadingFallback);
+    return /*#__PURE__*/React__default["default"].createElement(React__default["default"].Fragment, null, children);
+  }
+  function RequireAuth(_ref2) {
+    var children = _ref2.children,
+      _ref2$fallback = _ref2.fallback,
+      fallback = _ref2$fallback === void 0 ? null : _ref2$fallback;
+    var _useAuth2 = useAuth(),
+      isAuthenticated = _useAuth2.isAuthenticated;
+    if (!isAuthenticated) return /*#__PURE__*/React__default["default"].createElement(React__default["default"].Fragment, null, fallback);
+    return /*#__PURE__*/React__default["default"].createElement(React__default["default"].Fragment, null, children);
+  }
+  function RequirePermissions(_ref3) {
+    var children = _ref3.children,
+      anyOf = _ref3.anyOf,
+      allOf = _ref3.allOf,
+      _ref3$fallback = _ref3.fallback,
+      fallback = _ref3$fallback === void 0 ? null : _ref3$fallback;
+    var _useAuth3 = useAuth(),
+      hasAnyPermission = _useAuth3.hasAnyPermission,
+      hasAllPermissions = _useAuth3.hasAllPermissions;
+    var allowed = true;
+    if (anyOf && anyOf.length > 0) allowed = allowed && hasAnyPermission(anyOf);
+    if (allOf && allOf.length > 0) allowed = allowed && hasAllPermissions(allOf);
+    if (!allowed) return /*#__PURE__*/React__default["default"].createElement(React__default["default"].Fragment, null, fallback);
+    return /*#__PURE__*/React__default["default"].createElement(React__default["default"].Fragment, null, children);
+  }
+
+  function useAuthFetch() {
+    var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+    var _useAuth = useAuth(),
+      getAuthorizationHeader = _useAuth.getAuthorizationHeader,
+      refreshAccessToken = _useAuth.refreshAccessToken;
+    var _options$refreshOn = options.refreshOn401,
+      refreshOn401 = _options$refreshOn === void 0 ? true : _options$refreshOn,
+      onUnauthorized = options.onUnauthorized;
+    return React.useCallback(/*#__PURE__*/function () {
+      var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(input, init) {
+        var withHeaders, doFetch, response, refreshed;
+        return _regenerator().w(function (_context) {
+          while (1) switch (_context.n) {
+            case 0:
+              withHeaders = function withHeaders(ri) {
+                return _objectSpread2(_objectSpread2({}, ri), {}, {
+                  headers: _objectSpread2(_objectSpread2({}, ri === null || ri === void 0 ? void 0 : ri.headers), getAuthorizationHeader())
+                });
+              };
+              doFetch = function doFetch(ri) {
+                return fetch(input, withHeaders(ri));
+              };
+              _context.n = 1;
+              return doFetch(init);
+            case 1:
+              response = _context.v;
+              if (!(response.status !== 401 || !refreshOn401)) {
+                _context.n = 2;
+                break;
+              }
+              return _context.a(2, response);
+            case 2:
+              _context.n = 3;
+              return refreshAccessToken();
+            case 3:
+              refreshed = _context.v;
+              if (refreshed) {
+                _context.n = 5;
+                break;
+              }
+              if (!onUnauthorized) {
+                _context.n = 4;
+                break;
+              }
+              _context.n = 4;
+              return onUnauthorized(response);
+            case 4:
+              return _context.a(2, response);
+            case 5:
+              _context.n = 6;
+              return doFetch(init);
+            case 6:
+              response = _context.v;
+              if (!(response.status === 401 && onUnauthorized)) {
+                _context.n = 7;
+                break;
+              }
+              _context.n = 7;
+              return onUnauthorized(response);
+            case 7:
+              return _context.a(2, response);
+          }
+        }, _callee);
+      }));
+      return function (_x, _x2) {
+        return _ref.apply(this, arguments);
+      };
+    }(), [getAuthorizationHeader, refreshAccessToken, refreshOn401, onUnauthorized]);
+  }
+
+  function memoryStorage() {
+    var store = {};
+    return {
+      getItem: function getItem(k) {
+        return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null;
+      },
+      setItem: function setItem(k, v) {
+        store[k] = String(v);
+      },
+      removeItem: function removeItem(k) {
+        delete store[k];
+      }
+    };
+  }
+  function safeWebStorage(raw) {
+    return {
+      getItem: function getItem(k) {
+        try {
+          return raw.getItem(k);
+        } catch (_unused) {
+          return null;
+        }
+      },
+      setItem: function setItem(k, v) {
+        try {
+          raw.setItem(k, v);
+        } catch (_unused2) {/* ignore quota/blocked */}
+      },
+      removeItem: function removeItem(k) {
+        try {
+          raw.removeItem(k);
+        } catch (_unused3) {/* ignore */}
+      }
+    };
+  }
+
+  function withAuthHeaders(client, init) {
+    var headers = _objectSpread2(_objectSpread2({}, init === null || init === void 0 ? void 0 : init.headers), client.getAuthorizationHeader());
+    return _objectSpread2(_objectSpread2({}, init), {}, {
+      headers: headers
+    });
+  }
+  function createAuthFetch(client) {
+    var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    var _options$refreshOn = options.refreshOn401,
+      refreshOn401 = _options$refreshOn === void 0 ? true : _options$refreshOn,
+      onUnauthorized = options.onUnauthorized;
+    return /*#__PURE__*/function () {
+      var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(input, init) {
+        var doFetch, response, refreshed;
+        return _regenerator().w(function (_context) {
+          while (1) switch (_context.n) {
+            case 0:
+              doFetch = function doFetch(reqInit) {
+                return fetch(input, withAuthHeaders(client, reqInit));
+              };
+              _context.n = 1;
+              return doFetch(init);
+            case 1:
+              response = _context.v;
+              if (!(response.status !== 401 || !refreshOn401)) {
+                _context.n = 2;
+                break;
+              }
+              return _context.a(2, response);
+            case 2:
+              _context.n = 3;
+              return client.refreshAccessToken();
+            case 3:
+              refreshed = _context.v;
+              if (refreshed) {
+                _context.n = 5;
+                break;
+              }
+              if (!onUnauthorized) {
+                _context.n = 4;
+                break;
+              }
+              _context.n = 4;
+              return onUnauthorized(response);
+            case 4:
+              return _context.a(2, response);
+            case 5:
+              _context.n = 6;
+              return doFetch(init);
+            case 6:
+              response = _context.v;
+              if (!(response.status === 401 && onUnauthorized)) {
+                _context.n = 7;
+                break;
+              }
+              _context.n = 7;
+              return onUnauthorized(response);
+            case 7:
+              return _context.a(2, response);
+          }
+        }, _callee);
+      }));
+      return function (_x, _x2) {
+        return _ref.apply(this, arguments);
+      };
+    }();
+  }
+
+  exports.AuthGate = AuthGate;
   exports.AuthProvider = AuthProvider;
   exports.JwtAuthClient = JwtAuthClient;
+  exports.RequireAuth = RequireAuth;
+  exports.RequirePermissions = RequirePermissions;
+  exports.createAuthFetch = createAuthFetch;
+  exports.memoryStorage = memoryStorage;
+  exports.safeWebStorage = safeWebStorage;
   exports.useAuth = useAuth;
+  exports.useAuthFetch = useAuthFetch;
+  exports.withAuthHeaders = withAuthHeaders;
 
   Object.defineProperty(exports, '__esModule', { value: true });
 

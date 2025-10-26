@@ -14,6 +14,7 @@ This example demonstrates how to use `sirbenj-jwt-auth-client` in a React applic
 
     ```bash
     npm install
+    npm install react-router-dom @tanstack/react-query
     ```
 
 3.  Start the development server:
@@ -23,3 +24,8 @@ This example demonstrates how to use `sirbenj-jwt-auth-client` in a React applic
     ```
 
 This will open a new browser tab with the example application.
+
+The example demonstrates:
+- AuthProvider + useAuth
+- React Router v6 guarded routes with RequireAuth and RequirePermissions
+- TanStack Query integrations via useAuthQuery and useAuthMutation

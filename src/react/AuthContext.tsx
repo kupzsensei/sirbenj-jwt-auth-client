@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useMemo, useCallback, useContext } from 'react';
 import { JwtAuthClient } from '../JwtAuthClient';
-import { AuthContextType, JwtAuthClientOptions, LoginCredentials, JwtPayload } from '../types';
+import { AuthContextType, JwtAuthClientOptions, LoginCredentials } from '../types';
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -34,6 +34,18 @@ export function AuthProvider({ children, config }: { children: React.ReactNode; 
             setIsRefreshing(false);
         };
         initializeAuth();
+    }, [authClient]);
+
+    // Cross-tab sync for storage changes
+    useEffect(() => {
+        const handler = () => {
+            setAccessToken(authClient.getAccessToken());
+        };
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('storage', handler);
+            return () => window.removeEventListener('storage', handler);
+        }
+        return () => {};
     }, [authClient]);
 
     const isAuthenticated = useMemo(() => !!accessToken && !authClient.isAccessTokenExpired() && isVerified, [accessToken, authClient, isVerified]);
@@ -87,10 +99,11 @@ export function AuthProvider({ children, config }: { children: React.ReactNode; 
         isRefreshing,
         refreshAccessToken,
         verifyToken,
+        getAuthorizationHeader: () => authClient.getAuthorizationHeader(),
         getRoles: () => authClient.getRoles(),
-        hasRole: (role) => authClient.hasRole(role),
-        hasAnyRole: (roles) => authClient.hasAnyRole(roles),
-        hasAllRoles: (roles) => authClient.hasAllRoles(roles),
+        hasRole: (role: string) => authClient.hasRole(role),
+        hasAnyRole: (roles: string[]) => authClient.hasAnyRole(roles),
+        hasAllRoles: (roles: string[]) => authClient.hasAllRoles(roles),
         getPermissions: () => authClient.getPermissions(),
         hasPermission: (permission: string) => authClient.hasPermission(permission),
         hasAnyPermission: (permissions: string[]) => authClient.hasAnyPermission(permissions),

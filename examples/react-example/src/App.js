@@ -1,63 +1,90 @@
 import React, { useState } from 'react';
-import { useAuth } from 'sirbenj-jwt-auth-client';
+import { Routes, Route, Link, Navigate } from 'react-router-dom';
+import { useAuth, RequireAuth, RequirePermissions } from 'sirbenj-jwt-auth-client';
+import { useAuthQuery, useAuthMutation } from 'sirbenj-jwt-auth-client/query';
 
-function App() {
-  const { isAuthenticated, login, logout, userPayload, isRefreshing, loading, verifyToken } = useAuth();
+function LoginPage() {
+  const { login, loading, isRefreshing } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-
   const handleLogin = async () => {
     const result = await login({ username, password });
-    if (result) {
-      console.log('Login successful!', result.tokenResponse.accessToken, result.apiResponse);
-      // You can access the tokens directly from result.tokenResponse
-      // And the full API response from result.apiResponse
-    } else {
-      console.error('Login failed!');
-    }
+    if (!result) alert('Login failed');
   };
-
-  const handleVerify = async () => {
-    const verified = await verifyToken();
-    if (verified) {
-      console.log('Token verified by backend!');
-    } else {
-      console.error('Token verification failed by backend!');
-    }
-  };
-
-  if (loading || isRefreshing) {
-    return <div>Loading session...</div>;
-  }
-
-  if (isAuthenticated) {
-    return (
-      <div>
-        <p>Welcome, {userPayload.name}!</p>
-        <button onClick={logout}>Logout</button>
-        <button onClick={handleVerify}>Verify Token</button>
-      </div>
-    );
-  }
-
   return (
     <div>
-      <p>You are not logged in.</p>
-      <input
-        type="text"
-        placeholder="Username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-      />
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
-      <button onClick={handleLogin}>Login</button>
+      <h2>Login</h2>
+      <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+      <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      <button onClick={handleLogin} disabled={loading || isRefreshing}>Login</button>
     </div>
   );
 }
 
-export default App;
+function Dashboard() {
+  const { logout, userPayload } = useAuth();
+  const { data, isLoading, error } = useAuthQuery(['me'], { url: 'https://your-api.com/me', method: 'GET' });
+  const createUser = useAuthMutation((vars) => ({ url: 'https://your-api.com/users', method: 'POST', body: vars }));
+  return (
+    <div>
+      <h2>Dashboard</h2>
+      <p>Welcome {userPayload?.name || 'User'}</p>
+      <nav>
+        <Link to="/">Home</Link> | <Link to="/dashboard">Dashboard</Link>
+      </nav>
+      <div>
+        <h4>Profile</h4>
+        {isLoading ? 'Loading…' : error ? 'Failed to load' : <pre>{JSON.stringify(data, null, 2)}</pre>}
+      </div>
+      <div>
+        <h4>Create user (permission: user:write)</h4>
+        <RequirePermissions anyOf={["user:write"]} fallback={<div>No permission.</div>}>
+          <button onClick={() => createUser.mutate({ name: 'Alice' })} disabled={createUser.isLoading}>
+            {createUser.isLoading ? 'Creating…' : 'Create User'}
+          </button>
+        </RequirePermissions>
+      </div>
+      <button onClick={logout}>Logout</button>
+    </div>
+  );
+}
+
+function Home() {
+  const { isAuthenticated } = useAuth();
+  return (
+    <div>
+      <h2>Home</h2>
+      <nav>
+        <Link to="/">Home</Link> | <Link to="/dashboard">Dashboard</Link> | <Link to="/login">Login</Link>
+      </nav>
+      <p>Authenticated: {String(isAuthenticated)}</p>
+    </div>
+  );
+}
+
+function Forbidden() {
+  return <div>Forbidden</div>;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/dashboard"
+        element={
+          <RequireAuth fallback={<Navigate to="/login" replace />}> 
+            <RequirePermissions anyOf={["user:read"]} fallback={<Navigate to="/forbidden" replace />}> 
+              <Dashboard />
+            </RequirePermissions>
+          </RequireAuth>
+        }
+      />
+      <Route path="/forbidden" element={<Forbidden />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+export { LoginPage, Dashboard, Home, Forbidden };

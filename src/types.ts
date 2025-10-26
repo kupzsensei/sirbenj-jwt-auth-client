@@ -1,9 +1,32 @@
+// Minimal storage contract compatible with Web Storage and custom adapters
+export interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+// JWT payload shape with common registered claims and passthrough fields
+export interface JwtPayload {
+  iss?: string;
+  sub?: string;
+  aud?: string | string[];
+  exp?: number; // seconds since epoch
+  nbf?: number;
+  iat?: number;
+  jti?: string;
+  [key: string]: any;
+}
+
 export interface JwtAuthClientOptions {
-  storage?: Storage;
+  storage?: StorageLike; // defaults to localStorage when available, else in-memory
   accessTokenKey?: string;
   refreshTokenKey?: string;
   rolesClaim?: string;
   permissionsClaim?: string;
+  autoRefresh?: boolean; // automatically refresh before expiry
+  refreshLeewaySeconds?: number; // refresh N seconds before exp
+  clockSkewSeconds?: number; // tolerate issuer clock skew
+  enableStorageSync?: boolean; // listen to storage events across tabs
   
   // New declarative API configurations
   loginApiConfig?: LoginApiConfig;
@@ -16,6 +39,12 @@ export interface JwtAuthClientOptions {
   onVerify?: (accessToken: string) => Promise<boolean>;
 }
 
+export interface ApiRequestContext {
+  credentials?: any;
+  accessToken?: string | null;
+  refreshToken?: string | null;
+}
+
 export interface LoginApiConfig {
   url: string;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -24,6 +53,8 @@ export interface LoginApiConfig {
     accessToken?: string; // Path to access token in response (e.g., 'data.token')
     refreshToken?: string; // Path to refresh token in response
   };
+  // Optional override to fully control the request based on credentials
+  requestBuilder?: (ctx: ApiRequestContext) => { url?: string; init?: RequestInit };
 }
 
 export interface RefreshApiConfig {
@@ -34,6 +65,8 @@ export interface RefreshApiConfig {
     newAccessToken?: string; // Path to new access token in response
     newRefreshToken?: string; // Path to new refresh token in response
   };
+  // Optional override to fully control the request using refresh token
+  requestBuilder?: (ctx: ApiRequestContext) => { url?: string; init?: RequestInit };
 }
 
 export interface VerifyApiConfig {
@@ -43,6 +76,8 @@ export interface VerifyApiConfig {
   responseMapping?: {
     isValid?: string; // Path to boolean indicating validity (e.g., 'status.success')
   };
+  // Optional override to fully control the request using access token
+  requestBuilder?: (ctx: ApiRequestContext) => { url?: string; init?: RequestInit };
 }
 
 export interface LoginCredentials {
@@ -65,6 +100,7 @@ export interface AuthContextType {
   isRefreshing: boolean;
   refreshAccessToken: () => Promise<boolean>;
   verifyToken: () => Promise<boolean>;
+  getAuthorizationHeader: () => Record<string, string>;
   getRoles: () => string[];
   hasRole: (role: string) => boolean;
   hasAnyRole: (roles: string[]) => boolean;
